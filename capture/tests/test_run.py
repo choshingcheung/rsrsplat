@@ -22,7 +22,7 @@ def start(ledger: Ledger, name: str = "kitchen", **extra) -> Run:
         model_alias="draft",
         prompt_kind="image",
         prompt_text="a domestic kitchen",
-        image_path="photos/kitchen.jpg",
+        image_paths=["photos/kitchen.jpg"],
         estimated_credits=230,
         **extra,
     )

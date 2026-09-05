@@ -22,7 +22,7 @@ from pathlib import Path
 
 from . import capture as pipeline
 from . import verify as ply
-from .client import DEFAULT_MODEL, MODELS, Marble, MarbleError, usd, world_id_of
+from .client import DEFAULT_MODEL, MODELS, Marble, MarbleError, spread, usd, world_id_of
 from .config import MissingKey, api_key, capture_dir, describe_key
 from .run import DEFAULT_DIR, Ledger
 
@@ -63,17 +63,30 @@ def cmd_credits(args: argparse.Namespace) -> int:
 
 def cmd_generate(args: argparse.Namespace) -> int:
     if not args.image and not args.text:
-        return fail("give --image, --text, or both")
+        return fail("give --image (repeatable), --text, or both")
 
-    image = Path(args.image).expanduser() if args.image else None
-    if image is not None and not image.is_file():
-        return fail(f"no such image: {image}")
+    images = [Path(p).expanduser() for p in (args.image or [])]
+    for image in images:
+        if not image.is_file():
+            return fail(f"no such image: {image}")
+
+    azimuths = [float(a) for a in (args.azimuth or [])]
+    if azimuths and len(azimuths) != len(images):
+        return fail(f"{len(azimuths)} azimuths for {len(images)} images; give one each")
+    if len(images) > 1 and not azimuths:
+        # Evenly spaced is right for a set shot around a scene, and wrong for a set shot
+        # through a narrow arc. Say which was assumed rather than deciding silently.
+        azimuths = spread(len(images))
+        say(f"no --azimuth given, assuming an even orbit: {', '.join(f'{a:g}' for a in azimuths)}")
+    if len(images) == 1:
+        azimuths = [0.0]
 
     model = MODELS[args.model]
-    estimated = pipeline.price(args.text, image, model)
-    name = args.name or (image.stem if image else (args.text or "world")[:40])
+    estimated = pipeline.price(args.text, images, model)
+    name = args.name or (images[0].stem if images else (args.text or "world")[:40])
 
-    say(f"{name}: {model.name}, about {estimated:,} credits (${usd(estimated):.2f})")
+    kind = "multi-image" if len(images) > 1 else "image" if images else "text"
+    say(f"{name}: {model.name}, {kind}, about {estimated:,} credits (${usd(estimated):.2f})")
 
     if args.dry_run:
         say("dry run: nothing was sent and nothing was spent")
@@ -98,7 +111,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
         client,
         ledger,
         text=args.text,
-        image=image,
+        images=images,
+        azimuths=azimuths,
         model=model,
         model_alias=args.model,
         display_name=name,
@@ -197,7 +211,16 @@ def parser() -> argparse.ArgumentParser:
     sub = root.add_subparsers(dest="command", required=True)
 
     generate = sub.add_parser("generate", help="generate a world and download it as a PLY")
-    generate.add_argument("--image", help="photograph or panorama to build the world from")
+    generate.add_argument(
+        "--image",
+        action="append",
+        help="photograph or panorama; repeat it for a multi-image prompt",
+    )
+    generate.add_argument(
+        "--azimuth",
+        action="append",
+        help="degrees around the scene for the matching --image; one per image",
+    )
     generate.add_argument("--text", help="a description, alone or alongside an image")
     generate.add_argument(
         "--model",

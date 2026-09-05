@@ -104,6 +104,61 @@ def test_a_paid_model_is_refused_without_confirmation_in_a_script(photo: Path, c
     assert "$1.26" in error
 
 
+def test_several_images_are_priced_as_multi_image(photo: Path, tmp_path: Path, capsys):
+    second = tmp_path / "b.jpg"
+    second.write_bytes(b"jpeg-ish")
+
+    assert cli.main(
+        ["generate", "--image", str(photo), "--image", str(second), "--dry-run"]
+    ) == 0
+    out = capsys.readouterr().out
+    assert "multi-image" in out
+    assert "250 credits" in out
+
+
+def test_an_assumed_orbit_is_announced_rather_than_silent(photo: Path, tmp_path: Path, capsys):
+    """Even spacing is right for a set shot around a scene and wrong for a narrow arc.
+
+    Either way the user must be able to see which was assumed.
+    """
+    second = tmp_path / "b.jpg"
+    second.write_bytes(b"jpeg-ish")
+
+    cli.main(["generate", "--image", str(photo), "--image", str(second), "--dry-run"])
+    out = capsys.readouterr().out
+    assert "assuming an even orbit" in out
+    assert "0, 180" in out
+
+
+def test_explicit_azimuths_replace_the_assumption(photo: Path, tmp_path: Path, capsys):
+    second = tmp_path / "b.jpg"
+    second.write_bytes(b"jpeg-ish")
+
+    cli.main([
+        "generate", "--image", str(photo), "--azimuth", "0",
+        "--image", str(second), "--azimuth", "20", "--dry-run",
+    ])
+    assert "assuming an even orbit" not in capsys.readouterr().out
+
+
+def test_mismatched_azimuths_are_refused(photo: Path, tmp_path: Path, capsys):
+    second = tmp_path / "b.jpg"
+    second.write_bytes(b"jpeg-ish")
+
+    assert cli.main([
+        "generate", "--image", str(photo), "--image", str(second),
+        "--azimuth", "0", "--dry-run",
+    ]) == 1
+    assert "give one each" in capsys.readouterr().err
+
+
+def test_a_missing_image_among_several_is_caught(photo: Path, tmp_path: Path, capsys):
+    assert cli.main(
+        ["generate", "--image", str(photo), "--image", str(tmp_path / "gone.jpg"), "--dry-run"]
+    ) == 1
+    assert "no such image" in capsys.readouterr().err
+
+
 def test_the_default_model_is_the_cheap_one(photo: Path, capsys):
     cli.main(["generate", "--image", str(photo), "--dry-run"])
     assert "marble-1.0-draft" in capsys.readouterr().out

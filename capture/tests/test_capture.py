@@ -60,7 +60,8 @@ def run_it(client, ledger: Ledger, out: Path, photo: Path | None = None, **kwarg
         client,
         ledger,
         text=kwargs.pop("text", "a domestic kitchen"),
-        image=photo,
+        images=[photo] if photo else [],
+        azimuths=[0.0] if photo else [],
         model=MODELS["draft"],
         model_alias="draft",
         display_name="kitchen",
@@ -134,7 +135,7 @@ def test_an_empty_account_is_refused_before_anything_is_spent(routed, recorder, 
 
 def test_the_estimate_recorded_is_the_estimate_quoted(routed, ledger, tmp_path, photo):
     run = run_it(routed(api()), ledger, tmp_path / "out", photo)
-    assert run.estimated_credits == pipeline.price("a domestic kitchen", photo, MODELS["draft"])
+    assert run.estimated_credits == pipeline.price("a domestic kitchen", [photo], MODELS["draft"])
     assert run.estimated_credits == 230
 
 
@@ -165,7 +166,8 @@ def test_the_operation_id_lands_on_disk_immediately(routed, ledger, tmp_path):
         client,
         ledger,
         text="a kitchen",
-        image=None,
+        images=[],
+        azimuths=[],
         model=MODELS["draft"],
         model_alias="draft",
         display_name="kitchen",
@@ -283,10 +285,30 @@ def test_missing_world_metadata_does_not_lose_the_capture(routed, ledger, tmp_pa
 
 def test_a_prompt_needs_something_in_it():
     with pytest.raises(ValueError):
-        pipeline.build_prompt(None, None, None)
+        pipeline.build_prompt(None, [], [])
 
 
-def test_an_image_run_is_priced_as_an_image_run(photo):
-    assert pipeline.price("x", photo, MODELS["draft"]) == 230
-    assert pipeline.price("x", None, MODELS["draft"]) == 230
-    assert pipeline.price("x", photo, MODELS["standard"]) == 1580
+def test_a_run_is_priced_by_how_many_images_it_has(photo):
+    """Multi-image buys a dearer panorama: 100 credits against 80."""
+    assert pipeline.price("x", [photo], MODELS["draft"]) == 230
+    assert pipeline.price("x", [], MODELS["draft"]) == 230
+    assert pipeline.price("x", [photo, photo, photo], MODELS["draft"]) == 250
+    assert pipeline.price("x", [photo], MODELS["standard"]) == 1580
+
+
+def test_several_images_become_a_multi_image_prompt():
+    prompt = pipeline.build_prompt("a desk", ["a", "b", "c"], [0.0, 20.0, 45.0])
+
+    assert prompt["type"] == "multi-image"
+    assert [v["azimuth"] for v in prompt["multi_image_prompt"]] == [0.0, 20.0, 45.0]
+    assert prompt["text_prompt"] == "a desk"
+
+
+def test_one_image_is_still_a_plain_image_prompt():
+    assert pipeline.build_prompt(None, ["a"], [0.0])["type"] == "image"
+
+
+def test_an_azimuth_missing_for_an_image_is_an_error_not_a_guess():
+    """zip(strict=True): a silently dropped view is a worse outcome than a refusal."""
+    with pytest.raises(ValueError):
+        pipeline.build_prompt(None, ["a", "b", "c"], [0.0, 20.0])

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import random
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -274,6 +274,43 @@ def image_prompt(
     if text:
         prompt["text_prompt"] = text
     return prompt
+
+
+def multi_image_prompt(
+    views: Sequence[tuple[str, float]], text: str | None = None
+) -> dict[str, Any]:
+    """Several views of one scene, each labelled with the angle it was taken from.
+
+    ``views`` is (media_asset_id, azimuth in DEGREES). Azimuth places the camera around the
+    scene: the documented example pairs 0 and 180 for opposite sides. Only the differences
+    matter, so a set shot through a 45 degree arc should be given as 0/20/45 and not spread
+    to 0/120/240 -- claiming a wider baseline than the photographs actually have is asking
+    the model to reconcile views that do not exist.
+
+    Costs more than a single image (100 credits of panorama against 80), and it is the only
+    prompt type where a wrong number is silently plausible rather than an error.
+    """
+    if len(views) < 2:
+        raise ValueError("a multi-image prompt needs at least two views")
+
+    prompt: dict[str, Any] = {
+        "type": "multi-image",
+        "multi_image_prompt": [
+            {
+                "azimuth": float(azimuth),
+                "content": {"source": "media_asset", "media_asset_id": asset_id},
+            }
+            for asset_id, azimuth in views
+        ],
+    }
+    if text:
+        prompt["text_prompt"] = text
+    return prompt
+
+
+def spread(count: int) -> list[float]:
+    """Evenly spaced azimuths for ``count`` views, the default for an orbit set."""
+    return [round(i * 360.0 / count, 1) for i in range(count)]
 
 
 def prompt_kind(world_prompt: dict[str, Any]) -> str:
@@ -643,8 +680,10 @@ __all__ = [
     "UploadTarget",
     "estimate_credits",
     "image_prompt",
+    "multi_image_prompt",
     "prompt_kind",
     "semantics_of",
+    "spread",
     "text_prompt",
     "world_id_of",
     "usd",

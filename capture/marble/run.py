@@ -88,7 +88,10 @@ class Run:
     model_alias: str = ""
     prompt_kind: str = "text"
     prompt_text: str | None = None
-    image_path: str | None = None
+    #: Every image the prompt was built from, in order. Empty for a text-only run.
+    image_paths: list[str] = field(default_factory=list)
+    #: Azimuths in DEGREES, parallel to image_paths. Only meaningful for multi-image.
+    azimuths: list[float] = field(default_factory=list)
 
     # What it was expected to cost. Recorded before the spend, so a surprise is visible.
     estimated_credits: int = 0

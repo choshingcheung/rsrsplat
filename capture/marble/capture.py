@@ -16,7 +16,7 @@ that can be picked up rather than paid for again.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,7 @@ from .client import (
     Model,
     estimate_credits,
     image_prompt,
+    multi_image_prompt,
     semantics_of,
     text_prompt,
 )
@@ -47,19 +48,31 @@ class NotEnoughCredits(MarbleError):
     """Refused before spending, rather than discovered halfway through."""
 
 
-def build_prompt(text: str | None, image: Path | None, asset_id: str | None) -> dict[str, Any]:
-    """The world_prompt for this run. Image wins when both are given; the text refines it."""
-    if image is not None or asset_id is not None:
-        return image_prompt(media_asset_id=asset_id, text=text)
+def build_prompt(
+    text: str | None, asset_ids: Sequence[str], azimuths: Sequence[float]
+) -> dict[str, Any]:
+    """The world_prompt for this run, from however many images were uploaded.
+
+    One image and a sentence is an image prompt with the text refining it. Two or more is a
+    multi-image prompt, where each view carries the angle it was taken from.
+    """
+    if len(asset_ids) > 1:
+        return multi_image_prompt(list(zip(asset_ids, azimuths, strict=True)), text=text)
+    if asset_ids:
+        return image_prompt(media_asset_id=asset_ids[0], text=text)
     if not text:
         raise ValueError("give an image, a text prompt, or both")
     return text_prompt(text)
 
 
-def price(text: str | None, image: Path | None, model: Model) -> int:
-    """Worst-case credits, without contacting anything. Used by ``--dry-run``."""
-    kind = {"type": "image"} if image is not None else {"type": "text"}
-    return estimate_credits({**kind, "text_prompt": text}, model)
+def price(text: str | None, images: Sequence[Path], model: Model) -> int:
+    """Worst-case credits, without contacting anything. Used by ``--dry-run``.
+
+    Multi-image costs more panorama than a single image -- 100 credits against 80 -- so the
+    count changes the quote and not only the upload time.
+    """
+    kind = "multi-image" if len(images) > 1 else "image" if images else "text"
+    return estimate_credits({"type": kind, "text_prompt": text}, model)
 
 
 def start(
@@ -67,7 +80,8 @@ def start(
     ledger: Ledger,
     *,
     text: str | None,
-    image: Path | None,
+    images: Sequence[Path],
+    azimuths: Sequence[float],
     model: Model,
     model_alias: str,
     display_name: str,
@@ -80,7 +94,7 @@ def start(
     can lose a paid world is only as wide as one HTTP round trip. ``marble worlds`` is the
     recovery for that window; nothing can close it entirely from this side.
     """
-    estimated = price(text, image, model)
+    estimated = price(text, images, model)
 
     if check_credits:
         remaining = client.credits()
@@ -95,20 +109,23 @@ def start(
         display_name=display_name,
         model=model.name,
         model_alias=model_alias,
-        prompt_kind="image" if image is not None else "text",
+        prompt_kind=("multi-image" if len(images) > 1 else "image" if images else "text"),
         prompt_text=text,
-        image_path=str(image) if image is not None else None,
+        image_paths=[str(p) for p in images],
+        azimuths=list(azimuths),
         estimated_credits=estimated,
     )
     say(f"run {run.id} recorded before spending anything")
 
     try:
-        asset_id: str | None = None
-        if image is not None:
-            say(f"uploading {image.name} ({image.stat().st_size / 1e6:.1f} MB)")
-            asset_id = client.upload_file(image)
+        asset_ids: list[str] = []
+        for image, azimuth in zip(images, azimuths, strict=True):
+            size = image.stat().st_size / 1e6
+            at = f" at {azimuth:g} deg" if len(images) > 1 else ""
+            say(f"uploading {image.name} ({size:.1f} MB){at}")
+            asset_ids.append(client.upload_file(image))
 
-        prompt = build_prompt(text, image, asset_id)
+        prompt = build_prompt(text, asset_ids, azimuths)
         say(f"generating with {model.name}")
         operation = client.generate(prompt, model, display_name=display_name)
     except Exception as exc:
@@ -264,7 +281,8 @@ def write_sidecar(run: Run, world: dict[str, Any], info: ply.PlyInfo) -> Path:
         "prompt": {
             "kind": run.prompt_kind,
             "text": run.prompt_text,
-            "image": Path(run.image_path).name if run.image_path else None,
+            "images": [Path(p).name for p in run.image_paths] or None,
+            "azimuths": list(run.azimuths) or None,
         },
         "ply": {
             "file": ply_path.name,
