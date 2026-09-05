@@ -153,6 +153,7 @@ def build_object(
     *,
     pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
     quat: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
+    prefix: str = "",
 ) -> ET.Element:
     """Append this schema's object as a body under ``parent``, and return it.
 
@@ -160,11 +161,15 @@ def build_object(
     orientation the user's selection measured. ``quat`` is (w, x, y, z), matching both
     MuJoCo and the wire protocol.
 
+    ``prefix`` is prepended to every body, geom, joint and site name, so two crates in one
+    scene do not collide in MuJoCo's flat namespace. The pose stream addresses bodies by
+    these names, so whatever prefixes here must be what the session reports on the wire.
+
     Pass the returned body to :func:`exclude_internal_contacts` unless you specifically want
     an object's own parts colliding with one another.
     """
     half = half_extents(schema)
-    name = str(schema["object"])
+    name = prefix + str(schema["object"])
     mu = friction(schema)
 
     body = ET.SubElement(parent, "body", name=name, pos=_v(*pos), quat=_v(*quat))
@@ -186,7 +191,7 @@ def build_object(
     _add_shell_geoms(body, name, half, mu, shape(schema))
 
     for part in parts(schema):
-        _add_part(body, part, half, mu)
+        _add_part(body, part, half, mu, prefix)
 
     return body
 
@@ -248,9 +253,15 @@ def _add_shell_geoms(
         )
 
 
-def _add_part(shell: ET.Element, part: dict, half: tuple[float, float, float], mu: float) -> None:
+def _add_part(
+    shell: ET.Element,
+    part: dict,
+    half: tuple[float, float, float],
+    mu: float,
+    prefix: str = "",
+) -> None:
     hx, hy, hz = half
-    name = part["name"]
+    name = prefix + part["name"]
     joint = part["joint"]
     fric = _v(mu, 0.005, 0.0001)
 
@@ -377,7 +388,7 @@ def _add_part(shell: ET.Element, part: dict, half: tuple[float, float, float], m
         ET.SubElement(
             body,
             "site",
-            name=aff["site"],
+            name=prefix + aff["site"],
             size="0.008",
             pos=_v(*_site_offset(part, aff, anchor, half)),
             rgba="0 1 0 0.6",

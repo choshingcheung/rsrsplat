@@ -5,6 +5,7 @@ want. ``scene`` puts objects into the room the browser measured, which is what t
 session wants.
 """
 
+from . import scene
 from .build import (
     BUTTON_STANDOFF,
     PANEL,
@@ -28,5 +29,6 @@ __all__ = [
     "build_object",
     "compile_model",
     "exclude_internal_contacts",
+    "scene",
     "to_xml",
 ]

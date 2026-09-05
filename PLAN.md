@@ -54,9 +54,21 @@ Python, headless, provable with `pytest`. No browser involved at any point.
       a door panel centred on the front face stood permanently 1.75 mm inside the side walls;
       and `floor=False` moved the object to the origin while leaving the plane there, so a
       "free-floating" body started half-buried and was ejected upward.
-- [ ] **S4 · Ground and scene assembly.** Floor, up vector, scale.
-      *Proof:* a body dropped above the floor settles rather than tunnelling, within a bounded
-      number of steps.
+- [x] **S4 · Ground and scene assembly.** Floor, up vector, scale.
+      *Proof:* a 20 kg crate dropped 1 m above a floor at z = -1.42 settles in under 1500 steps
+      and rests on it; a 200 kg one never dips below the plane on the way down. Two objects
+      stack. 183 tests green, ruff clean.
+      *Decided:* scene coordinates are metric and z-up **by construction** — the browser
+      establishes that at load, since it owns the Gaussians and must pick a render frame
+      anyway. `WorldFrame` still carries `up` and `sceneScale`, and the service validates them
+      with a message naming the problem rather than simulating a scene where gravity points at
+      a wall. See `DECISIONS.md`.
+      *Two cross-checks worth having:* the placement derived from a selection's axis columns
+      independently reproduces the orientation quaternion hand-computed in
+      `contract/fixtures/`, and the door body resolved from the symbolic anchor
+      `bottom_front_edge` lands exactly where the fixture says the hinge is. Two routes to the
+      same numbers means the wire's frame and the MJCF's frame really are one frame — the
+      mismatch `PORTING.md` hazard 2 was about, and one that is invisible in a viewer.
 - [ ] **S5 · Simulation loop.** Stepping at 0.002, pose broadcast at ~30 Hz, decoupled.
       *Proof:* real-time factor ≥ 1 headless; broadcast rate holds under load.
 - [ ] **S6 · The service.** FastAPI, WebSocket, session state, `sim.control`, and

@@ -111,3 +111,25 @@ lands on the bottom front edge, computed from the frame rather than hardcoded.
 Note that the prototype's anchor table has its own left/right labels backwards — in a
 right-handed frame with +x front and +z up, +y is left, not right. Harmless on a symmetric box,
 wrong for a side-hinged door. Recorded in `PORTING.md`; fix during the S2 port.
+
+## Scene coordinates are metric and z-up by construction — 2026-09-05
+
+The capture on hand is neither: `playroom_7000.ply` measures 27 x 34 x 34 in arbitrary units
+with an arbitrary up direction, which is normal for trained 3DGS. Something has to fix that,
+and there were two places to do it.
+
+**The browser does it, once, at load.** It owns the Gaussians, it has to choose a frame to
+render them in anyway, and the prototype's `ground.py` already derives up and scale from the
+cloud. So the scene the rest of the system sees is metric and z-up.
+
+The alternative — carrying an arbitrary `up` and `sceneScale` into the service — spreads one
+transform across gravity, the floor plane's orientation, object placement, and the pose
+return path. Four conversion points instead of one, and conversion points are where sign
+errors live.
+
+`WorldFrame` still carries `up` and `sceneScale` on the wire, and the service **validates**
+them rather than assuming. A capture that arrives tilted or unscaled fails immediately with a
+message saying so, instead of producing a scene where gravity points at a wall.
+
+`groundHeight` stays genuinely variable: the floor is wherever the fitted plane put it, and
+that is rarely z = 0.
