@@ -107,6 +107,7 @@ describe("the full path: select, describe, bind, move", () => {
       type: "scene.load",
       splatId: "room",
       splatCount: cloud.count,
+      obstacles: [],
       world: {
         up: [alignment.up.x, alignment.up.y, alignment.up.z],
         groundHeight: alignment.groundHeight,
@@ -176,6 +177,7 @@ describe("the full path: select, describe, bind, move", () => {
       type: "scene.load",
       splatId: "room",
       splatCount: cloud.count,
+      obstacles: [],
       world: { up: [0, 0, 1], groundHeight: 0, sceneScale: 1 },
     });
     service.send({

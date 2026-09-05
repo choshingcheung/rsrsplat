@@ -21,6 +21,7 @@ import type {
   PhysicsObject,
   PhysicsPart,
   PoseUpdate,
+  Obstacle,
   Selection,
   ServerMessage,
   Vec3,
@@ -76,6 +77,15 @@ export interface MockOptions {
 
 export class MockService {
   private world: WorldFrame | null = null;
+  /**
+   * The room's solid geometry.
+   *
+   * Held but only used for the floor and worktops a falling body can land on. The mock is a
+   * point mass with a floor, not a collision engine -- walls do nothing here, and a body
+   * shoved sideways will leave the room. That is a real difference from the service, and the
+   * readout says which one is answering.
+   */
+  private obstacles: readonly Obstacle[] = [];
   private selections = new Map<string, Selection>();
   private bodies: Body[] = [];
   private objects: PhysicsObject[] = [];
@@ -92,7 +102,7 @@ export class MockService {
   send(message: ClientMessage): void {
     switch (message.type) {
       case "scene.load":
-        return this.load(message.world);
+        return this.load(message.world, message.obstacles);
       case "selection.commit":
         this.selections.set(message.selection.id, message.selection);
         return;
@@ -116,8 +126,9 @@ export class MockService {
 
   // -- messages -------------------------------------------------------------------------
 
-  private load(world: WorldFrame) {
+  private load(world: WorldFrame, obstacles: readonly Obstacle[] = []) {
     this.world = world;
+    this.obstacles = obstacles;
     this.selections.clear();
     this.bodies = [];
     this.objects = [];
@@ -267,7 +278,7 @@ export class MockService {
           body.position[1] += body.velocity[1] * TIMESTEP;
           body.position[2] += body.velocity[2] * TIMESTEP;
 
-          const rest = floor + body.halfHeight;
+          const rest = this.restHeightUnder(body) + body.halfHeight;
           if (body.position[2] <= rest) {
             body.position[2] = rest;
             // Lose most of the speed on contact, and stop outright once it is small. Without
@@ -294,6 +305,29 @@ export class MockService {
     if (this.bodies.length) {
       this.emit({ type: "pose.batch", t: this.time, poses: this.bodies.map(poseOf) });
     }
+  }
+
+  /**
+   * The top of the highest declared surface beneath a body, or the floor.
+   *
+   * Enough for a bottle to land on a worktop rather than sail through it. It is not
+   * collision detection: nothing here handles a body sliding off an edge.
+   */
+  private restHeightUnder(body: Body): number {
+    let best = this.world?.groundHeight ?? 0;
+    for (const o of this.obstacles) {
+      if (o.kind !== "surface") continue;
+      const top = o.position[2] + o.halfExtents[2];
+      if (top > best && top <= body.position[2] + 1e-6) {
+        if (
+          Math.abs(body.position[0] - o.position[0]) <= o.halfExtents[0] &&
+          Math.abs(body.position[1] - o.position[1]) <= o.halfExtents[1]
+        ) {
+          best = top;
+        }
+      }
+    }
+    return best;
   }
 
   private emit(message: ServerMessage) {

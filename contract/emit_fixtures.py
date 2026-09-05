@@ -82,6 +82,22 @@ CLIENT = {
             "groundHeight": -1.42,
             "sceneScale": 1.0,
         },
+        # The room as boxes physics can hit. A splat stops nothing, so without these the
+        # only solid thing in the scene is the ground plane.
+        "obstacles": [
+            {
+                "id": "surface_2",
+                "kind": "surface",
+                "position": [1.05, -0.4, -0.51],
+                "halfExtents": [0.62, 0.31, 0.02],
+            },
+            {
+                "id": "wall_xhi",
+                "kind": "wall",
+                "position": [2.4, 0.0, -0.12],
+                "halfExtents": [0.05, 1.9, 1.3],
+            },
+        ],
     },
     "selection.commit": {
         "type": "selection.commit",

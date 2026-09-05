@@ -28,7 +28,7 @@ from app.mjcf.scene import (
     resting_height,
 )
 from app.protocol import Selection, WorldFrame
-from app.schema import FALLBACK_DIR
+from app.schema import FALLBACK_DIR, half_extents
 
 FIXTURES = pathlib.Path(__file__).resolve().parents[2] / "contract" / "fixtures"
 GROUND = -1.42
@@ -263,3 +263,88 @@ def test_the_scene_declares_degrees_and_autolimits(world):
     compiler = ET.fromstring(to_xml(world, [])).find("compiler")
     assert compiler.get("angle") == "degree"
     assert compiler.get("autolimits") == "true"
+
+
+# ---- the room is solid ----------------------------------------------------------------------
+
+
+def obstacle(kind: str, position, half, name="o1"):
+    from app.protocol import Obstacle
+
+    return Obstacle(id=name, kind=kind, position=position, halfExtents=half)
+
+
+def test_without_obstacles_a_scanned_room_stops_nothing(world):
+    """The state this fixes, asserted so it cannot come back unnoticed.
+
+    A splat stops nothing. With only a ground plane, a bottle knocked off a worktop passes
+    straight through the worktop -- because to the solver there is no worktop.
+    """
+    crate = dict(load("crate"), mass=5.0)
+    # Starting where a worktop would be, with no worktop declared.
+    obj = SceneObject("obj_01", crate, (0.0, 0.0, GROUND + 1.2), (1.0, 0.0, 0.0, 0.0))
+    model = compile_scene(world, [obj])
+    data = mujoco.MjData(model)
+    for _ in range(1500):
+        mujoco.mj_step(model, data)
+
+    bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "obj_01__crate")
+    assert data.xpos[bid][2] == pytest.approx(resting_height(crate, GROUND), abs=5e-3)
+
+
+def test_a_declared_surface_actually_stops_things(world):
+    """The acceptance criterion for making the room solid."""
+    crate = dict(load("crate"), mass=5.0)
+    worktop_z = GROUND + 0.9
+    surface = obstacle("surface", (0.0, 0.0, worktop_z), (0.8, 0.4, 0.02), "surface_1")
+
+    obj = SceneObject("obj_01", crate, (0.0, 0.0, GROUND + 1.6), (1.0, 0.0, 0.0, 0.0))
+    model = compile_scene(world, [obj], (surface,))
+    data = mujoco.MjData(model)
+    for _ in range(1500):
+        mujoco.mj_step(model, data)
+
+    bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "obj_01__crate")
+    rest = worktop_z + 0.02 + half_extents(crate)[2]
+    assert data.xpos[bid][2] == pytest.approx(rest, abs=1e-2), "it must land ON the worktop"
+    assert data.xpos[bid][2] > GROUND + 0.5, "and not fall through to the floor"
+
+
+def test_a_wall_stops_something_sliding_into_it(world):
+    """Objects must stay in the room. Without walls a nudged bottle slides out of the scan."""
+    crate = dict(load("crate"), mass=5.0, friction=0.05)
+    wall = obstacle("wall", (1.2, 0.0, GROUND + 1.0), (0.05, 2.0, 1.0), "wall_xhi")
+
+    obj = SceneObject("obj_01", crate, (0.0, 0.0, GROUND + 0.25), (1.0, 0.0, 0.0, 0.0))
+    model = compile_scene(world, [obj], (wall,))
+    data = mujoco.MjData(model)
+    bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "obj_01__crate")
+
+    mujoco.mj_forward(model, data)
+    data.qvel[0] = 4.0  # shove it hard at the wall
+    for _ in range(1500):
+        mujoco.mj_step(model, data)
+
+    assert data.xpos[bid][0] < 1.2, f"it went through the wall, to x={data.xpos[bid][0]:.3f}"
+
+
+def test_obstacles_are_static_geometry_rather_than_bodies(world):
+    """Welded by construction: a worktop that could itself fall is not a worktop."""
+    surface = obstacle("surface", (0.0, 0.0, GROUND + 0.9), (0.8, 0.4, 0.02), "surface_1")
+    model = compile_scene(world, [], (surface,))
+
+    gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "env_surface_1")
+    assert gid >= 0, "the obstacle must reach the model"
+    assert model.geom_bodyid[gid] == 0, "it must belong to the worldbody"
+    assert model.nbody == 1, "obstacles add no bodies at all"
+
+
+def test_obstacles_take_the_same_friction_as_the_floor(world):
+    """MuJoCo takes the pair maximum, so a slick worktop makes a grippy crate slick."""
+    grippy = dict(load("crate"), friction=1.5)
+    surface = obstacle("surface", (0.0, 0.0, GROUND + 0.9), (0.8, 0.4, 0.02), "surface_1")
+    model = compile_scene(
+        world, [SceneObject("obj_01", grippy, (0, 0, 0), (1, 0, 0, 0))], (surface,)
+    )
+    gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "env_surface_1")
+    assert model.geom_friction[gid][0] == pytest.approx(1.5)

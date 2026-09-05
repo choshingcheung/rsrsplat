@@ -106,6 +106,27 @@ class WorldFrame(Wire):
     scene_scale: float = Field(alias="sceneScale", gt=0.0)
 
 
+class Obstacle(Wire):
+    """A solid box in the scanned room: a worktop, a table, a wall.
+
+    **A splat stops nothing.** Nothing in a Gaussian cloud collides with anything, so without
+    these the only solid thing in a scene is the ground plane -- an object knocked off a
+    counter falls through the counter, through the floor, and out of the world.
+
+    Derived in the browser, which owns the Gaussians. Deliberately coarse: a room made of a
+    dozen boxes stops the same things a millimetre-accurate one would.
+
+    Axis-aligned in the aligned frame, so no orientation is carried.
+    """
+
+    id: str
+    kind: Literal["surface", "wall"]
+    #: Centre. METRES, scene coordinates.
+    position: Vec3
+    #: Half-extents, matching MJCF box ``size`` semantics.
+    half_extents: Vec3 = Field(alias="halfExtents")
+
+
 class Selection(Wire):
     """What the user dragged a box around.
 
@@ -211,6 +232,14 @@ class SceneLoad(Wire):
     splat_count: int = Field(alias="splatCount", ge=1)
     #: Ground plane, up vector and scale, fitted client-side from the point cloud.
     world: WorldFrame
+    #: The room's solid geometry, so physics has something to happen against. Empty is legal
+    #: and means a bare ground plane -- a scene where a bottle rolls off a worktop and
+    #: straight through it.
+    #:
+    #: Required, not defaulted: a client that forgets to send it gets a room where nothing
+    #: is solid, which is exactly the failure this field exists to prevent. Send an empty
+    #: list to mean it deliberately.
+    obstacles: tuple[Obstacle, ...]
 
 
 class SelectionCommit(Wire):
@@ -310,6 +339,7 @@ __all__ = [
     "JointType",
     "Mat3",
     "MeshAttach",
+    "Obstacle",
     "ObjectCreated",
     "ObjectFailed",
     "ObjectPhysicalize",

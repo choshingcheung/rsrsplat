@@ -27,6 +27,7 @@ import numpy as np
 
 from ..mjcf.scene import SceneObject, check_world, compile_scene, object_from_selection
 from ..protocol import (
+    Obstacle,
     PhysicsObject,
     PhysicsPart,
     PoseBatch,
@@ -58,6 +59,10 @@ class Session:
     world: WorldFrame
     session_id: str = field(default_factory=lambda: f"ses_{uuid.uuid4().hex[:8]}")
 
+    #: The room's solid geometry. Fixed for the life of a session: it comes from the
+    #: capture, and the capture does not change while it is loaded.
+    obstacles: tuple[Obstacle, ...] = ()
+
     objects: dict[str, SceneObject] = field(default_factory=dict)
     running: bool = True
     step_count: int = 0
@@ -83,7 +88,7 @@ class Session:
         """Recompile, carrying every existing joint's position across by name."""
         kept = self._joint_state() if self._model is not None else {}
 
-        self._model = compile_scene(self.world, list(self.objects.values()))
+        self._model = compile_scene(self.world, list(self.objects.values()), self.obstacles)
         self._model.opt.timestep = TIMESTEP
         self._data = mujoco.MjData(self._model)
 

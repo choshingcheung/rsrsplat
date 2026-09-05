@@ -44,7 +44,7 @@ afterEach(() => vi.useRealTimers());
 describe("the handshake", () => {
   it("acknowledges a scene before anything else", () => {
     const { service, messages } = harness();
-    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
 
     expect(messages[0].type).toBe("scene.ready");
     expect(messages[1].type).toBe("sim.status");
@@ -53,7 +53,7 @@ describe("the handshake", () => {
 
   it("sends nothing at all until something is physicalized", () => {
     const { service, of } = harness();
-    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
     vi.advanceTimersByTime(500);
 
     expect(of("pose.batch")).toHaveLength(0);
@@ -64,7 +64,7 @@ describe("the handshake", () => {
 describe("physicalize", () => {
   it("refuses a selection that was never committed, the way the service does", () => {
     const { service, of } = harness();
-    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
     service.send({ type: "object.physicalize", selectionId: "ghost", prompt: "a crate" });
 
     expect(of("object.failed")[0].reason).toContain("unknown selection");
@@ -73,7 +73,7 @@ describe("physicalize", () => {
 
   it("makes a crate a free body with a mass that follows the words", () => {
     const { service, of } = harness();
-    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
     service.send({ type: "selection.commit", selection: selection() });
     service.send({ type: "object.physicalize", selectionId: "sel_01", prompt: "a heavy crate" });
 
@@ -91,7 +91,7 @@ describe("physicalize", () => {
       [heavy, "a solid steel crate"],
       [light, "an empty cardboard box"],
     ] as const) {
-      h.service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+      h.service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
       h.service.send({ type: "selection.commit", selection: selection() });
       h.service.send({ type: "object.physicalize", selectionId: "sel_01", prompt });
       h.service.stop();
@@ -103,7 +103,7 @@ describe("physicalize", () => {
 
   it("gives a dishwasher a hinge, in degrees, owning a subset", () => {
     const { service, of } = harness();
-    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
     service.send({ type: "selection.commit", selection: selection("sel_01", [0, 0, 0], [0.3, 0.3, 0.425]) });
     service.send({
       type: "object.physicalize",
@@ -122,7 +122,7 @@ describe("physicalize", () => {
   it("places the hinge on the bottom front edge, as the generator does", () => {
     // centroid + halfDepth * front - halfHeight * up, with an identity frame.
     const { service, of } = harness();
-    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
     service.send({ type: "selection.commit", selection: selection("sel_01", [1, 2, 3], [0.3, 0.3, 0.4]) });
     service.send({ type: "object.physicalize", selectionId: "sel_01", prompt: "a dishwasher" });
 
@@ -133,7 +133,7 @@ describe("physicalize", () => {
 
   it("carries a unit quaternion on every part", () => {
     const { service, of } = harness();
-    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
     service.send({ type: "selection.commit", selection: selection() });
     service.send({ type: "object.physicalize", selectionId: "sel_01", prompt: "a dishwasher" });
 
@@ -148,7 +148,7 @@ describe("physicalize", () => {
 describe("the stream", () => {
   function fall(prompt = "a crate") {
     const { service, of } = harness();
-    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+    service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
     service.send({ type: "selection.commit", selection: selection() });
     service.send({ type: "object.physicalize", selectionId: "sel_01", prompt });
     vi.advanceTimersByTime(3000);
@@ -194,7 +194,7 @@ describe("the stream", () => {
 describe("control", () => {
   function running() {
     const h = harness();
-    h.service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD });
+    h.service.send({ type: "scene.load", splatId: "x", splatCount: 10, world: WORLD, obstacles: [] });
     h.service.send({ type: "selection.commit", selection: selection() });
     h.service.send({ type: "object.physicalize", selectionId: "sel_01", prompt: "a crate" });
     return h;

@@ -36,6 +36,7 @@
 
 import * as THREE from "three";
 
+import type { Obstacle } from "../types/protocol";
 import type { SplatCloud } from "./splats";
 
 /** A domestic room, floor to ceiling. What the scale is fitted against. */
@@ -354,4 +355,195 @@ export function alignScene(cloud: SplatCloud, options: AlignOptions = {}): Align
     planes: planes.length,
     layerScore: score,
   };
+}
+
+// ---------------------------------------------------------------------------------------
+// The room as solid geometry
+// ---------------------------------------------------------------------------------------
+
+/** A flat horizontal patch you could set something on: a floor, a table, a counter, a shelf. */
+export interface Surface {
+  height: number;
+  centre: [number, number];
+  halfExtent: [number, number];
+  splats: number;
+  /** Occupied area, not bounding-box area. */
+  area: number;
+  isFloor: boolean;
+}
+
+/**
+ * Find the flat horizontal patches.
+ *
+ * After alignment a horizontal surface is a spike in the height histogram, so that is where
+ * this looks. Each candidate band is then rasterised in xy, so the reported area is the
+ * OCCUPIED footprint rather than a bounding box — a table and a shelf on opposite walls
+ * share a height and must not merge into one enormous slab across the room.
+ *
+ * Two thresholds that are wrong in the obvious form, ported with the prototype's reasons:
+ *
+ * - A band must beat the maximum of its NEIGHBOURHOOD, but be compared for significance
+ *   against the mean over EVERY bin including empty ones. Comparing against the local
+ *   neighbourhood finds nothing, because a broad surface makes its own neighbourhood dense.
+ * - The background is that mean, not the median of non-empty bins. The median fails exactly
+ *   when a scene is mostly flat surfaces: with few occupied bins it sits between the peaks
+ *   and rejects all of them.
+ */
+export function horizontalSurfaces(
+  centers: Float32Array,
+  count: number,
+  { binHeight = 0.03, minSplats = 400, cell = 0.06, minArea = 0.05, slab = 0.04 } = {},
+): Surface[] {
+  const z = new Float32Array(count);
+  for (let i = 0; i < count; i++) z[i] = centers[i * 3 + 2];
+  const sorted = Float32Array.from(z).sort();
+
+  // Padded by a bin at each end, or a scene that is a single flat band collapses to a
+  // degenerate histogram and a surface in the first or last bin is missed entirely.
+  const lo = sorted[0] - binHeight;
+  const hi = sorted[Math.floor(count * 0.995)] + binHeight;
+  const bins = Math.max(8, Math.floor((hi - lo) / binHeight));
+  const width = (hi - lo) / bins;
+
+  const counts = new Float64Array(bins);
+  for (let i = 0; i < count; i++) {
+    const b = Math.floor((z[i] - lo) / width);
+    if (b >= 0 && b < bins) counts[b] += 1;
+  }
+  const background = counts.reduce((a, b) => a + b, 0) / bins;
+
+  const surfaces: Surface[] = [];
+  for (let i = 0; i < bins; i++) {
+    if (counts[i] < minSplats) continue;
+    let neighbourhood = 0;
+    for (let k = Math.max(0, i - 4); k < Math.min(bins, i + 5); k++) {
+      neighbourhood = Math.max(neighbourhood, counts[k]);
+    }
+    if (counts[i] < neighbourhood) continue;
+    if (counts[i] < 3 * background) continue;
+
+    const height = lo + (i + 0.5) * width;
+
+    // Rasterise the band's footprint so the area is what is occupied, not what is spanned.
+    const occupied = new Set<string>();
+    let sumX = 0;
+    let sumY = 0;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let n = 0;
+
+    for (let s = 0; s < count; s++) {
+      if (Math.abs(centers[s * 3 + 2] - height) >= slab) continue;
+      const x = centers[s * 3];
+      const y = centers[s * 3 + 1];
+      occupied.add(`${Math.floor(x / cell)},${Math.floor(y / cell)}`);
+      sumX += x;
+      sumY += y;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      n += 1;
+    }
+    if (n < minSplats) continue;
+
+    const area = occupied.size * cell * cell;
+    if (area < minArea) continue;
+
+    surfaces.push({
+      height,
+      centre: [sumX / n, sumY / n],
+      halfExtent: [(maxX - minX) / 2, (maxY - minY) / 2],
+      splats: n,
+      area,
+      isFloor: false,
+    });
+  }
+
+  surfaces.sort((a, b) => a.height - b.height);
+  if (surfaces.length) surfaces[0].isFloor = true;
+  return surfaces;
+}
+
+/**
+ * The room, as boxes a physics engine can actually hit.
+ *
+ * **A splat stops nothing.** Without this the only collision geometry in the scene is the
+ * ground plane, so an object knocked off a counter falls through the counter, through the
+ * floor it was standing on, and out of the world. The walls, the tables and the worktops are
+ * pure appearance until something like this makes them solid.
+ *
+ * Deliberately coarse, and the prototype's reason for that stands: the twin is a type
+ * checker, and a room made of a dozen boxes rejects the same impossible situations a
+ * millimetre-accurate one would.
+ *
+ * The extent comes from the FLOOR's own footprint rather than the whole cloud, because a
+ * splat scene always has floaters and walls placed on the raw extent land metres past the
+ * real ones — which is worse than having no walls at all.
+ */
+export function roomObstacles(
+  centers: Float32Array,
+  count: number,
+  groundHeight: number,
+  { wallThickness = 0.05, ceilingFallback = ROOM_HEIGHT_M } = {},
+): Obstacle[] {
+  const surfaces = horizontalSurfaces(centers, count, {});
+  const floor = surfaces.find((s) => s.isFloor);
+  const ceiling = surfaces.length > 1 ? surfaces[surfaces.length - 1].height : null;
+  const height = ceiling && ceiling > groundHeight + 1 ? ceiling - groundHeight : ceilingFallback;
+
+  let cx: number;
+  let cy: number;
+  let hx: number;
+  let hy: number;
+  if (floor) {
+    [cx, cy] = floor.centre;
+    [hx, hy] = floor.halfExtent;
+  } else {
+    const px = (axis: 0 | 1, p: number) => {
+      const v = new Float32Array(count);
+      for (let i = 0; i < count; i++) v[i] = centers[i * 3 + axis];
+      v.sort();
+      return v[Math.floor(count * p)];
+    };
+    cx = (px(0, 0.02) + px(0, 0.98)) / 2;
+    cy = (px(1, 0.02) + px(1, 0.98)) / 2;
+    hx = (px(0, 0.98) - px(0, 0.02)) / 2;
+    hy = (px(1, 0.98) - px(1, 0.02)) / 2;
+  }
+
+  const obstacles: Obstacle[] = [];
+
+  // Every surface that is not the floor and not the ceiling: worktops, tables, shelves.
+  // Nothing rests on a ceiling, and the floor is already an infinite plane.
+  surfaces.forEach((s, i) => {
+    if (s.isFloor) return;
+    if (ceiling !== null && s.height > ceiling - 0.15) return;
+    obstacles.push({
+      id: `surface_${i}`,
+      kind: "surface",
+      position: [s.centre[0], s.centre[1], s.height - 0.02],
+      halfExtents: [Math.max(s.halfExtent[0], 0.05), Math.max(s.halfExtent[1], 0.05), 0.02],
+    });
+  });
+
+  // Four walls at the floor's edge, so nothing slides out of the room.
+  const walls: [string, number, number, number, number][] = [
+    ["xlo", cx - hx, cy, wallThickness, hy],
+    ["xhi", cx + hx, cy, wallThickness, hy],
+    ["ylo", cx, cy - hy, hx, wallThickness],
+    ["yhi", cx, cy + hy, hx, wallThickness],
+  ];
+  for (const [name, px, py, sx, sy] of walls) {
+    obstacles.push({
+      id: `wall_${name}`,
+      kind: "wall",
+      position: [px, py, groundHeight + height / 2],
+      halfExtents: [Math.max(sx, wallThickness), Math.max(sy, wallThickness), height / 2],
+    });
+  }
+
+  return obstacles;
 }

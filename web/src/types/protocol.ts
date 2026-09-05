@@ -94,6 +94,28 @@ export interface WorldFrame {
 }
 
 /**
+ * A solid box in the scanned room: a worktop, a table, a wall.
+ *
+ * **A splat stops nothing.** Nothing in a Gaussian cloud collides with anything, so without
+ * these the only solid thing in the scene is the ground plane — an object knocked off a
+ * counter falls through the counter, through the floor, and out of the world.
+ *
+ * Derived in the browser, which owns the Gaussians: horizontal surfaces come from spikes in
+ * the height histogram, walls from the floor's own footprint. Deliberately coarse. A room
+ * made of a dozen boxes stops the same things a millimetre-accurate one would.
+ *
+ * Axis-aligned in the aligned frame, so no orientation is needed.
+ */
+export interface Obstacle {
+  id: string;
+  kind: "surface" | "wall";
+  /** Centre. METRES, scene coordinates. */
+  position: Vec3;
+  /** Half-extents, matching MJCF box `size` semantics. */
+  halfExtents: Vec3;
+}
+
+/**
  * What the user dragged a box around.
  *
  * A few dozen bytes describing the shape of a splat subset. The indices themselves stay
@@ -203,6 +225,12 @@ export interface SceneLoad {
   splatCount: number;
   /** Ground plane, up vector and scale, fitted here from the point cloud. */
   world: WorldFrame;
+  /**
+   * The room's solid geometry, so physics has something to happen against. Empty is legal
+   * and means a bare ground plane — which is a scene where a bottle rolls off a worktop and
+   * straight through it.
+   */
+  obstacles: Obstacle[];
 }
 
 /** The user released a selection box. Geometry only — no indices. */

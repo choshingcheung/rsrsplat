@@ -123,7 +123,7 @@ class Connection:
 
     async def on_scene_load(self, message: SceneLoad) -> None:
         try:
-            self.session = Session(world=message.world)
+            self.session = Session(world=message.world, obstacles=message.obstacles)
         except SceneError as exc:
             # The browser sent a frame we cannot simulate in. Say so against the scene
             # rather than silently running a session that will never behave.
@@ -132,10 +132,11 @@ class Connection:
 
         self.selections.clear()
         log.info(
-            "scene %s loaded: %d splats, ground at %.3f",
+            "scene %s loaded: %d splats, ground at %.3f, %d obstacles",
             message.splat_id,
             message.splat_count,
             message.world.ground_height,
+            len(message.obstacles),
         )
         await self.send(SceneReady(sessionId=self.session.session_id))
         await self.send(self.session.status())

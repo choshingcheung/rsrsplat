@@ -28,7 +28,7 @@ import { pick, rectFromPointers, type ScreenRect } from "../selection/pick";
 import { useScene } from "../store/scene";
 import type { ClientMessage, PhysicsObject, PoseUpdate, ServerMessage } from "../types/protocol";
 import { bind, easePose, orientationOf, unbind, type BoundObject } from "./binding";
-import { alignScene } from "./ground";
+import { alignScene, roomObstacles } from "./ground";
 import { applyAlignment, readPly, type SplatCloud } from "./splats";
 
 /** How often the frame counter reaches React. Every frame would re-render the tree at 60 Hz. */
@@ -181,10 +181,16 @@ export class SceneController {
         onMessage: (message) => this.receive(message),
         onTransport: (transport) => useScene.getState().setTransport(transport),
       });
+      // The room, as boxes physics can hit. Without these the only solid thing in the
+      // scene is the ground plane, and a bottle knocked off a worktop falls through the
+      // worktop, through the floor, and out of the world.
+      const obstacles = roomObstacles(aligned.centers, aligned.count, alignment.groundHeight);
+
       this.emit({
         type: "scene.load",
         splatId: file.name,
         splatCount: cloud.count,
+        obstacles,
         world: {
           up: [alignment.up.x, alignment.up.y, alignment.up.z],
           groundHeight: alignment.groundHeight,

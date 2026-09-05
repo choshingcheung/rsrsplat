@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from ..protocol import Selection, WorldFrame
+from ..protocol import Obstacle, Selection, WorldFrame
 from ..schema import friction, half_extents, validate, with_measured_frame
 from ..splat import quat
 from .build import SchemaError, build_object, exclude_internal_contacts
@@ -126,8 +126,21 @@ def object_from_selection(
     return SceneObject(object_id, measured, position, orientation)
 
 
-def build_scene(world: WorldFrame, objects: list[SceneObject]) -> ET.ElementTree:
-    """A complete MJCF for a session: the floor the browser found, and everything on it."""
+def build_scene(
+    world: WorldFrame,
+    objects: list[SceneObject],
+    obstacles: tuple[Obstacle, ...] = (),
+) -> ET.ElementTree:
+    """A complete MJCF for a session: the room, and everything in it.
+
+    ``obstacles`` is what makes the scanned room SOLID. A splat stops nothing -- there is no
+    reference to Gaussians anywhere in a collision driver -- so without them the only solid
+    thing in the scene is the ground plane, and an object knocked off a worktop falls through
+    the worktop, through the floor it was standing on, and out of the world.
+
+    They are static geoms in the worldbody rather than bodies, so they are welded by
+    construction and cost the solver nothing to hold still.
+    """
     check_world(world)
 
     mj = ET.Element("mujoco", model="rsrsplat_scene")
@@ -159,6 +172,21 @@ def build_scene(world: WorldFrame, objects: list[SceneObject]) -> ET.ElementTree
         friction=f"{mu:g} 0.005 0.0001",
     )
 
+    fric = f"{mu:g} 0.005 0.0001"
+    for obstacle in obstacles:
+        ET.SubElement(
+            body,
+            "geom",
+            name=f"env_{obstacle.id}",
+            type="box",
+            pos=" ".join(f"{v:.4f}" for v in obstacle.position),
+            size=" ".join(f"{v:.4f}" for v in obstacle.half_extents),
+            friction=fric,
+            # Faintly drawn, and only ever in the MuJoCo viewer: the browser never sees this
+            # geometry. It exists to be collided with, not looked at.
+            rgba="0.45 0.42 0.38 0.25" if obstacle.kind == "surface" else "0.4 0.42 0.5 0.10",
+        )
+
     for obj in objects:
         placed = build_object(
             body, obj.schema, pos=obj.position, quat=obj.orientation, prefix=obj.prefix
@@ -168,16 +196,20 @@ def build_scene(world: WorldFrame, objects: list[SceneObject]) -> ET.ElementTree
     return ET.ElementTree(mj)
 
 
-def to_xml(world: WorldFrame, objects: list[SceneObject]) -> str:
-    tree = build_scene(world, objects)
+def to_xml(
+    world: WorldFrame, objects: list[SceneObject], obstacles: tuple[Obstacle, ...] = ()
+) -> str:
+    tree = build_scene(world, objects, obstacles)
     ET.indent(tree, space="  ")
     return ET.tostring(tree.getroot(), encoding="unicode")
 
 
-def compile_scene(world: WorldFrame, objects: list[SceneObject]):
+def compile_scene(
+    world: WorldFrame, objects: list[SceneObject], obstacles: tuple[Obstacle, ...] = ()
+):
     import mujoco
 
-    return mujoco.MjModel.from_xml_string(to_xml(world, objects))
+    return mujoco.MjModel.from_xml_string(to_xml(world, objects, obstacles))
 
 
 def resting_height(schema: dict[str, Any], ground_height: float) -> float:
