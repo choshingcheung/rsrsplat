@@ -172,3 +172,60 @@ Two things learned doing it, both recorded in `web/src/scene/splats.ts`:
   selection's half-extents from the parsed centres rather than from re-read packed data.
 - **A box at the centroid of a room scan is empty.** Splats live on surfaces; the middle of a
   room is air. The first subset test returned zero splats and looked like a broken API.
+
+## One world, in MuJoCo. Desktop. — 2026-09-05
+
+**REPO_INIT.md §2.1 is overruled.** It put rendering in the browser and physics in Python
+because "MuJoCo is a Python library" and "the browser is where the product lives". The first
+half is right; the second is a product decision, and it has been changed.
+
+rsrsplat becomes a desktop application in one process. MuJoCo-Warp renders the splats and the
+physics geometry into the same framebuffer, so they occlude each other correctly by
+construction rather than by agreement.
+
+### What this deletes
+
+The whole seam. No WebSocket, no hand-mirrored protocol, no golden fixtures, no drift guards,
+no in-browser mock service, no pose streaming, no 35 ms round trip on a drag gesture. Every
+failure of the last few hours -- a stale service holding a port, a page and a service on
+different versions of the contract, a rejected `scene.load` surfacing three steps later as
+"no scene loaded yet" -- is a failure of that seam, and the seam is now gone.
+
+### What it costs, measured rather than assumed
+
+MuJoCo-Warp **raytraces** splats against a BVH; the browser's renderer rasterises them. From
+the prototype's `NOTES.md`, on this same RTX 4060:
+
+| splats | 480x360 | 640x480 | 960x720 |
+|---|---|---|---|
+| 80,000 | 28 ms | 32 ms | 42 ms |
+| 200,000 | 50 ms | 63 ms | 98 ms |
+| 400,000 | 146 ms | 158 ms | 285 ms |
+
+So the playroom capture's 1,495,461 splats must be subsampled roughly ten to twenty fold, and
+the result sits near 20 fps. Against 1.5M at 60 fps in the browser, that is a real loss of
+scene detail, accepted deliberately in exchange for one coherent world.
+
+This was put to the user with the numbers before the decision, and R1 is an explicit
+go/no-go: if a 150k budget at 640x480 is unpleasant to use, the fallback is a desktop shell
+around the existing browser renderer, which keeps everything already built.
+
+### What is frozen rather than deleted
+
+`web/` is **retired but not removed**. It stays until the desktop app reaches parity, then
+goes in one commit of its own. Nothing in it is edited from here.
+
+The valuable half survives untouched, because it was always on this side: the articulation
+schema, the anchors, the validator, MJCF generation, the PLY reader, and the ground fit. The
+selection geometry ports back from TypeScript to numpy, which is where it started.
+
+## Working in a shared tree — 2026-09-05
+
+A second session is building a Marble capture tool in `capture/`, in this same working tree,
+under the isolation contract in `capture/README.md`.
+
+**Never `git add -A`, `git add -u`, or `git commit -a`.** Stage explicit paths only. Their
+half-finished work would otherwise be swept into a commit from this side. This was being done
+wrongly for most of today and nothing was caught by it only through luck.
+
+`capture/` is theirs. The files listed in their contract as never-edited are read-only here.
