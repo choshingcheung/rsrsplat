@@ -273,6 +273,15 @@ export interface ObjectPhysicalize {
   selectionId: string;
   /** Free text from the user, e.g. "a dishwasher, the door hinges at the bottom". */
   prompt: string;
+  /**
+   * Collision for the hole this object leaves behind.
+   *
+   * Lifting a vest off a carpet exposes floor the scanner never saw, so the browser fills it
+   * — and a patch filled visually but not physically is worse than none, because the floor
+   * then looks whole and things drop through it. The browser owns the Gaussians and is the
+   * only side that knows where the hole is.
+   */
+  obstacles?: Obstacle[];
 }
 
 export interface ObjectRemove {

@@ -172,6 +172,13 @@ class Connection:
             )
             return
 
+        # The patch that closes the hole this object is about to leave. It has to be in the
+        # model BEFORE the object exists, or the first frame is simulated against a floor
+        # with a hole in it -- which is one step, but one step is all it takes for something
+        # resting there to start falling.
+        if message.obstacles:
+            self.session.add_obstacles(message.obstacles)
+
         schema, source = fallback.describe(message.prompt, tuple(selection.half_extents))
         object_id = f"obj_{uuid.uuid4().hex[:8]}"
 

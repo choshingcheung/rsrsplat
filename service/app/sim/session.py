@@ -151,6 +151,19 @@ class Session:
 
     # -- objects ------------------------------------------------------------------------
 
+    def add_obstacles(self, extra: tuple[Obstacle, ...]) -> None:
+        """Add static geometry to the room, keeping the simulation's state.
+
+        Used for the patch that fills the hole a removed object leaves. Ids replace rather
+        than duplicate, so re-physicalising the same selection cannot stack two slabs of
+        floor in the same place and give it twice the restitution.
+        """
+        if not extra:
+            return
+        replaced = {o.id for o in extra}
+        self.obstacles = tuple(o for o in self.obstacles if o.id not in replaced) + tuple(extra)
+        self._rebuild()
+
     def physicalize(self, object_id: str, schema: dict[str, Any], selection: Selection):
         """Add an object, and report it in the shape the wire expects.
 

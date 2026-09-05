@@ -284,6 +284,13 @@ class ObjectPhysicalize(Wire):
     selection_id: str = Field(alias="selectionId")
     #: Free text from the user, e.g. "a dishwasher, the door hinges at the bottom".
     prompt: str
+    #: Collision for the hole this object leaves behind.
+    #:
+    #: Lifting a vest off a carpet exposes floor the scanner never saw, so the browser fills
+    #: it -- and a patch that is filled visually but not physically is worse than no patch at
+    #: all, because the floor then looks whole and things drop through it. The browser owns
+    #: the Gaussians and so is the only side that knows where the hole is.
+    obstacles: tuple[Obstacle, ...] = ()
 
 
 class ObjectRemove(Wire):

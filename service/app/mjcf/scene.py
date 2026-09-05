@@ -233,11 +233,19 @@ def carve_obstacles(
     copy of itself, which MuJoCo resolves the only way it can: by ejecting it at whatever
     speed the penetration implies. It reads as the object exploding on contact with nothing.
 
-    Overlap is decided by separating axis over the six face normals -- three world, three of
-    the object's -- and NOT the nine edge cross-products. That is deliberately incomplete in
-    the safe direction: it can call a near-miss an overlap and carve a box that did not
-    strictly need carving, which costs a little scenery. The opposite error leaves a body
-    embedded in the room, which costs the demo.
+    Two rules, and the second was learned the hard way.
+
+    **Only ``solid`` obstacles are candidates.** Those are the voxelised scan, the only ones
+    that can contain a copy of the object. ``surface`` and ``wall`` are structure the room is
+    made of -- including the patch that fills the hole the object just left -- and deleting
+    those is how a floor comes to look whole and not be.
+
+    **A box is carved when its CENTRE is inside the object, not when it merely touches.** The
+    first version carved on overlap, which quietly deleted the surface an object was resting
+    ON: a crate set down on a desk overlaps the desk's top boxes by a millimetre, those got
+    carved, and the crate fell through a desk that was still on screen. Containment says what
+    was meant all along -- this volume IS the object now -- and a supporting surface's boxes
+    have their centres below the object, not inside it.
     """
     if not objects:
         return obstacles
@@ -245,41 +253,31 @@ def carve_obstacles(
     boxes = []
     for obj in objects:
         rotation = quat.to_mat(np.asarray(obj.orientation, dtype=np.float32)).astype(float)
-        half = np.asarray(half_extents(obj.schema), dtype=float) + margin
+        # Shrink rather than grow: the object's box is measured from splats and already
+        # reaches a little past the object, so an unshrunk test claims its own footprint.
+        half = np.maximum(np.asarray(half_extents(obj.schema), dtype=float) - margin, 1e-4)
         boxes.append((np.asarray(obj.position, dtype=float), rotation, half))
 
-    kept = tuple(o for o in obstacles if not any(_overlaps(o, *b) for b in boxes))
-    return kept
+    return tuple(
+        o
+        for o in obstacles
+        if o.kind != "solid" or not any(_inside(o, *b) for b in boxes)
+    )
 
 
-def _overlaps(
+def _inside(
     obstacle: Obstacle,
     centre: np.ndarray,
     rotation: np.ndarray,
     half: np.ndarray,
 ) -> bool:
-    """Separating-axis test between a world-aligned obstacle and an oriented object box.
+    """Is this obstacle's centre inside the object's oriented box?
 
-    ``rotation`` has the object's axes as COLUMNS, matching ``placement_from_selection``.
+    ``rotation`` has the object's axes as COLUMNS, matching ``placement_from_selection``, so
+    projecting onto column *j* gives the coordinate along the object's own *j*-th axis.
     """
-    c = np.asarray(obstacle.position, dtype=float)
-    h = np.asarray(obstacle.half_extents, dtype=float)
-    d = c - centre
-
-    # The three world axes: project the object's box onto each.
-    for i in range(3):
-        reach = float(np.abs(rotation[i, :]) @ half)
-        if abs(d[i]) > h[i] + reach:
-            return False
-
-    # The three object axes: project the obstacle's box onto each.
-    for j in range(3):
-        axis = rotation[:, j]
-        reach = float(np.abs(axis) @ h)
-        if abs(float(d @ axis)) > half[j] + reach:
-            return False
-
-    return True
+    d = np.asarray(obstacle.position, dtype=float) - centre
+    return all(abs(float(d @ rotation[:, j])) <= half[j] for j in range(3))
 
 
 def resting_height(schema: dict[str, Any], ground_height: float) -> float:

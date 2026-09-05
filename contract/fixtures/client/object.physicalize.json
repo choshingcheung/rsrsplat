@@ -1,5 +1,21 @@
 {
   "type": "object.physicalize",
   "selectionId": "sel_01",
-  "prompt": "a dishwasher, the door hinges at the bottom and opens ninety degrees"
+  "prompt": "a dishwasher, the door hinges at the bottom and opens ninety degrees",
+  "obstacles": [
+    {
+      "id": "patch_0",
+      "kind": "surface",
+      "position": [
+        0.42,
+        -0.18,
+        -1.44
+      ],
+      "halfExtents": [
+        0.16,
+        0.11,
+        0.02
+      ]
+    }
+  ]
 }

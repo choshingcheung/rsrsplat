@@ -515,3 +515,40 @@ def test_carving_leaves_the_room_alone(world):
     kept = {o.id for o in carve_obstacles((floor, wall), [obj])}
     assert kept == {"floor", "wall_xhi"}
 
+
+def test_the_surface_an_object_rests_on_is_not_carved_away(world):
+    """The bug the containment rule fixes, and it is invisible until something falls.
+
+    A crate set down on a desk overlaps the desk's top boxes by a hair. Carving on overlap
+    deleted them, and the crate dropped through a desk that was still on screen.
+    """
+    from app.mjcf.scene import carve_obstacles
+
+    crate = load("crate")
+    half = half_extents(crate)
+    desk_top = GROUND + 0.74
+    obj = SceneObject("obj_01", crate, (0.0, 0.0, desk_top + half[2]), (1.0, 0.0, 0.0, 0.0))
+
+    # The desk surface, immediately under the crate and touching it.
+    desk = obstacle("solid", (0.0, 0.0, desk_top - 0.04), (0.6, 0.4, 0.04), "desk")
+    kept = {o.id for o in carve_obstacles((desk,), [obj])}
+    assert kept == {"desk"}
+
+
+def test_a_healed_hole_is_never_carved(world):
+    """The patch that fills the hole is structure, not scan geometry.
+
+    It sits exactly where the object was, so a rule that carves by position alone deletes it
+    -- and then the floor looks whole and things drop through it.
+    """
+    from app.mjcf.scene import carve_obstacles
+
+    crate = load("crate")
+    obj = SceneObject("obj_01", crate, (0.0, 0.0, GROUND + 0.3), (1.0, 0.0, 0.0, 0.0))
+
+    patch = obstacle("surface", (0.0, 0.0, GROUND + 0.3), (0.2, 0.2, 0.02), "patch_0")
+    scan = obstacle("solid", (0.0, 0.0, GROUND + 0.3), (0.05, 0.05, 0.05), "solid_0")
+
+    kept = {o.id for o in carve_obstacles((patch, scan), [obj])}
+    assert kept == {"patch_0"}
+

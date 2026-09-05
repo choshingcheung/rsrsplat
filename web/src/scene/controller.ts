@@ -36,6 +36,7 @@ import type {
 } from "../types/protocol";
 import { bind, orientationOf, unbind, type BoundObject } from "./binding";
 import { alignScene, roomObstacles } from "./ground";
+import { healSurface, mergeInto, type Patch } from "./heal";
 import { sceneCollision } from "./solid";
 import { applyAlignment, readPly, type SplatCloud } from "./splats";
 
@@ -97,6 +98,9 @@ export class SceneController {
 
   /** Heights of the detected horizontal surfaces, so a grow cannot leave through one. */
   private surfaces: number[] = [];
+
+  /** The floor patch for the object currently being physicalised, applied when it binds. */
+  private patch: Patch | null = null;
 
   private counter = 0;
 
@@ -525,13 +529,55 @@ export class SceneController {
 
   // -- physicalize ----------------------------------------------------------------------
 
+  /**
+   * The height of the surface this selection is standing on.
+   *
+   * The highest detected surface at or just below the object's underside. "Just below"
+   * matters: the underside is measured from splats and sits a centimetre or two proud of the
+   * thing it rests on, so an exact test finds nothing and the hole is filled at floor level
+   * underneath a desk.
+   */
+  private restingSurface(frame: MeasuredFrame): number | null {
+    const bottom = frame.centroid.z - frame.halfExtents.z;
+    let best: number | null = null;
+    for (const z of this.surfaces) {
+      if (z > bottom + 0.08) continue;
+      if (best === null || z > best) best = z;
+    }
+    return best;
+  }
+
   physicalize(prompt: string): void {
     if (!this.selectionId) {
       console.warn("rsrsplat: physicalize with no live selection");
       return;
     }
     useScene.getState().setPrompt({ kind: "pending", selectionId: this.selectionId, prompt });
-    this.emit({ type: "object.physicalize", selectionId: this.selectionId, prompt });
+    // Close the hole this is about to open. Computed here rather than after the object
+    // arrives, so its collision reaches the service in the same message: a floor that is
+    // whole one frame later is a floor something has already started falling through.
+    this.patch = null;
+    const surface = this.selectedFrame ? this.restingSurface(this.selectedFrame) : null;
+    if (this.cloud && this.selectedIndices && surface !== null) {
+      const patch = healSurface(this.cloud, this.selectedIndices, surface, {
+        id: `patch_${this.selectionId}`,
+      });
+      if (patch.healed) this.patch = patch;
+      if (import.meta.env.DEV) {
+        console.debug(
+          patch.healed
+            ? `rsrsplat: healing the hole at z=${surface.toFixed(2)} with ${patch.count} splats, ${patch.obstacles.length} boxes`
+            : `rsrsplat: no flat surface under the selection, leaving the hole`,
+        );
+      }
+    }
+
+    this.emit({
+      type: "object.physicalize",
+      selectionId: this.selectionId,
+      prompt,
+      obstacles: this.patch?.obstacles ?? [],
+    });
   }
 
   /** Drive a joint. Wire units: degrees for a hinge, metres for a slide. */
@@ -617,8 +663,11 @@ export class SceneController {
     }
     this.bound.set(object.id, bound);
 
-    // The static scene, minus exactly this object's splats. `bind` produced it in the same
-    // pass it used to gather the parts, so this costs nothing beyond swapping the mesh.
+    // The static scene, minus exactly this object's splats, plus the patch that closes the
+    // hole they leave. `bind` produced the remainder in the same pass it used to gather the
+    // parts, so this costs nothing beyond swapping the mesh.
+    if (this.patch) mergeInto(bound.remaining, this.patch.splats);
+    this.patch = null;
     this.replaceStatic(bound.remaining);
 
     // The selection has become an object, so it stops being a selection.
