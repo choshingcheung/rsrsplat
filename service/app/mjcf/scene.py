@@ -54,6 +54,9 @@ class SceneObject:
     schema: dict[str, Any]
     position: tuple[float, float, float]
     orientation: tuple[float, float, float, float]
+    #: The measured collision shape, in the object's own frame. Empty falls back to the
+    #: schema's box or shell.
+    shape: tuple = ()
 
     @property
     def prefix(self) -> str:
@@ -123,7 +126,7 @@ def object_from_selection(
     errors = validate(measured)
     if errors:
         raise SchemaError(errors)
-    return SceneObject(object_id, measured, position, orientation)
+    return SceneObject(object_id, measured, position, orientation, selection.shape)
 
 
 def build_scene(
@@ -189,7 +192,12 @@ def build_scene(
 
     for obj in objects:
         placed = build_object(
-            body, obj.schema, pos=obj.position, quat=obj.orientation, prefix=obj.prefix
+            body,
+            obj.schema,
+            pos=obj.position,
+            quat=obj.orientation,
+            prefix=obj.prefix,
+            shape=obj.shape,
         )
         exclude_internal_contacts(mj, placed)
 

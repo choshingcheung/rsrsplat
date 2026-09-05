@@ -198,3 +198,20 @@ describe("body.drag", () => {
     expect(released.target).toBeNull();
   });
 });
+
+describe("a selection's measured shape", () => {
+  it("carries more than one box, which is the whole point", () => {
+    // One box is what halfExtents already says. Two or more is a shape a bounding box cannot
+    // express -- and the difference between a chair with legs and a cuboid full of air.
+    expect(selectionCommit.selection.shape.length).toBeGreaterThan(1);
+  });
+
+  it("is expressed in the selection's own frame", () => {
+    // Centres sit around the origin, because the frame's origin IS the object's centroid.
+    // World coordinates here would put every box in the wrong place on a rotated object.
+    for (const box of selectionCommit.selection.shape) {
+      for (const v of box.center) expect(Math.abs(v)).toBeLessThan(1);
+      for (const v of box.halfExtents) expect(v).toBeGreaterThan(0);
+    }
+  });
+});

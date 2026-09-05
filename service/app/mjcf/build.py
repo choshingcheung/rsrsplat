@@ -40,8 +40,10 @@ from ..schema import (
     parts,
     resolve_anchor,
     resolve_axis,
-    shape,
     validate,
+)
+from ..schema import (
+    shape as shape_of,
 )
 
 #: Shell wall thickness and door panel thickness, metres. Thin enough not to eat the cavity,
@@ -154,6 +156,7 @@ def build_object(
     pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
     quat: tuple[float, float, float, float] = (1.0, 0.0, 0.0, 0.0),
     prefix: str = "",
+    shape: tuple = (),
 ) -> ET.Element:
     """Append this schema's object as a body under ``parent``, and return it.
 
@@ -188,7 +191,10 @@ def build_object(
         diaginertia=_v(*_box_inertia(mass, half)),
     )
 
-    _add_shell_geoms(body, name, half, mu, shape(schema))
+    if shape:
+        _add_measured_geoms(body, name, shape, mu)
+    else:
+        _add_shell_geoms(body, name, half, mu, shape_of(schema))
 
     for part in parts(schema):
         _add_part(body, part, half, mu, prefix)
@@ -218,6 +224,26 @@ def exclude_internal_contacts(mj: ET.Element, obj: ET.Element) -> None:
     for i, a in enumerate(names):
         for b in names[i + 1 :]:
             ET.SubElement(contact, "exclude", body1=a, body2=b)
+
+
+def _add_measured_geoms(body: ET.Element, name: str, boxes, mu: float) -> None:
+    """The object's own shape, as measured from its splats.
+
+    Preferred over the schema's ``box`` or ``shell`` whenever it exists, because it is the
+    object rather than a description of the object. The schema still decides mobility, mass
+    and what articulates; only the collision volume comes from here.
+    """
+    fric = _v(mu, 0.005, 0.0001)
+    for i, box in enumerate(boxes):
+        ET.SubElement(
+            body,
+            "geom",
+            name=f"{name}_part{i}",
+            type="box",
+            pos=_v(*box.center),
+            size=_v(*box.half_extents),
+            friction=fric,
+        )
 
 
 def _add_shell_geoms(

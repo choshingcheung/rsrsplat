@@ -116,6 +116,22 @@ export interface Obstacle {
 }
 
 /**
+ * One box of a selection's measured collision shape, in the selection's OWN frame.
+ *
+ * Axes are the selection's: `center` and `halfExtents` are along front, left and up, so the
+ * service can drop them straight into the object's body without knowing anything about the
+ * world.
+ *
+ * These come from voxelising the object's splats and merging the occupied cells. That is the
+ * difference between a chair with legs and a cuboid containing the air between them — and
+ * therefore between a chair that tips onto a corner and one that lands flat every time.
+ */
+export interface ShapeBox {
+  center: Vec3;
+  halfExtents: Vec3;
+}
+
+/**
  * What the user dragged a box around.
  *
  * A few dozen bytes describing the shape of a splat subset. The indices themselves stay
@@ -155,6 +171,14 @@ export interface Selection {
    * HALF, matching MJCF box `size` semantics, not full width.
    */
   halfExtents: Vec3;
+
+  /**
+   * The object's measured shape, as boxes in this frame.
+   *
+   * Empty means "use the bounding box" — which is what the frame above already describes,
+   * and is the honest fallback when segmentation could not find a clean component.
+   */
+  shape: ShapeBox[];
 }
 
 /** Where one body is, right now. */

@@ -268,7 +268,8 @@ class Room:
     def report(self) -> str:
         lines = [f"up (original frame) [{self.up[0]:+.3f} {self.up[1]:+.3f} {self.up[2]:+.3f}]",
                  f"scale {self.scale:.4f}  floor z={self.floor_z:.3f}"
-                 + (f"  ceiling z={self.ceiling_z:.2f}" if self.ceiling_z else "  no ceiling found"),
+                 + (f"  ceiling z={self.ceiling_z:.2f}" if self.ceiling_z
+                    else "  no ceiling found"),
                  f"{len(self.surfaces)} horizontal surfaces, {len(self.walls)} walls"]
         for s in self.surfaces:
             lines.append(f"   {s.label:<22} {s.area:5.2f} m2  {s.splats:>7,} splats")

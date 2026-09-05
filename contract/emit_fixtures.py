@@ -70,6 +70,13 @@ SELECTION = {
     "centroid": CENTROID,
     "axes": AXES,
     "halfExtents": HALF_EXTENTS,
+    # The measured shape: a plinth and the body above it, in the selection's own frame.
+    # Two boxes rather than one is the whole point -- a single box is what the half-extents
+    # above already say, and it contains air the object does not.
+    "shape": [
+        {"center": [0.0, 0.0, -0.325], "halfExtents": [0.30, 0.30, 0.10]},
+        {"center": [0.0, 0.0, 0.10], "halfExtents": [0.28, 0.28, 0.325]},
+    ],
 }
 
 CLIENT = {

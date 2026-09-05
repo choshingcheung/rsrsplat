@@ -19,7 +19,7 @@
 
 import * as THREE from "three";
 
-import type { Mat3, Selection, Vec3 } from "../types/protocol";
+import type { Mat3, Selection, ShapeBox, Vec3 } from "../types/protocol";
 
 export interface MeasuredFrame {
   centroid: THREE.Vector3;
@@ -196,7 +196,12 @@ export function determinant(m: Mat3): number {
 }
 
 /** The wire message for a committed selection. */
-export function toSelection(id: string, frame: MeasuredFrame, splatCount: number): Selection {
+export function toSelection(
+  id: string,
+  frame: MeasuredFrame,
+  splatCount: number,
+  shape: ShapeBox[] = [],
+): Selection {
   const axes = axesOf(frame);
   if (determinant(axes) < 0) {
     // Unreachable by construction, since `left` is derived as up x front. Asserted anyway:
@@ -209,5 +214,6 @@ export function toSelection(id: string, frame: MeasuredFrame, splatCount: number
     centroid: [frame.centroid.x, frame.centroid.y, frame.centroid.z] as Vec3,
     axes,
     halfExtents: [frame.halfExtents.x, frame.halfExtents.y, frame.halfExtents.z] as Vec3,
+    shape,
   };
 }

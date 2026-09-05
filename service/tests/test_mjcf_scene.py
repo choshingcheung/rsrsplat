@@ -348,3 +348,85 @@ def test_obstacles_take_the_same_friction_as_the_floor(world):
     )
     gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "env_surface_1")
     assert model.geom_friction[gid][0] == pytest.approx(1.5)
+
+
+# ---- the measured shape ----------------------------------------------------------------------
+
+
+def shaped(selection, boxes):
+    from app.protocol import ShapeBox
+
+    return selection.model_copy(
+        update={"shape": tuple(ShapeBox(center=c, halfExtents=h) for c, h in boxes)}
+    )
+
+
+def test_a_measured_shape_replaces_the_schemas_box(selection, world):
+    """The whole point of voxelising: the collision volume is the OBJECT, not a description
+    of it. The schema still decides mobility, mass and what articulates."""
+    legs = [((0.2, 0.2, -0.3), (0.03, 0.03, 0.12)), ((-0.2, -0.2, -0.3), (0.03, 0.03, 0.12))]
+    obj = object_from_selection("obj_01", load("crate"), shaped(selection, legs))
+    model = compile_scene(world, [obj])
+
+    for i in range(len(legs)):
+        gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, f"obj_01__crate_part{i}")
+        assert gid >= 0, "every measured box must reach the model"
+    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "obj_01__crate_body") < 0, (
+        "the schema's single box must not also be emitted"
+    )
+
+
+def test_an_empty_shape_falls_back_to_the_bounding_box(selection, world):
+    """Segmentation can fail to find a clean component, and a box is the honest fallback.
+
+    The fixture selection carries a shape, so it has to be cleared to exercise this at all --
+    which is the right way round: a measured shape is the normal case now.
+    """
+    obj = object_from_selection("obj_01", load("crate"), selection.model_copy(update={"shape": ()}))
+    model = compile_scene(world, [obj])
+    assert mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "obj_01__crate_body") >= 0
+
+
+def test_a_shaped_body_has_a_gap_a_bounding_box_would_have_filled(selection, world):
+    """A table's bounding box contains the air between its legs, so nothing can be pushed
+    under it and it never tips. Two legs and a top must leave the middle empty."""
+    boxes = [
+        ((0.0, 0.0, 0.38), (0.30, 0.30, 0.02)),   # top
+        ((0.25, 0.25, 0.15), (0.03, 0.03, 0.21)),  # leg
+        ((-0.25, -0.25, 0.15), (0.03, 0.03, 0.21)),
+    ]
+    obj = object_from_selection("obj_01", load("crate"), shaped(selection, boxes))
+    model = compile_scene(world, [obj])
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+
+    body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "obj_01__crate")
+    # A point under the top and between the legs, in the body's own frame.
+    gap = data.xpos[body] + data.xmat[body].reshape(3, 3) @ np.array([0.0, 0.0, 0.0])
+
+    for gid in range(model.ngeom):
+        if model.geom_bodyid[gid] != body:
+            continue
+        local = model.geom_pos[gid]
+        size = model.geom_size[gid]
+        inside = all(abs(np.array([0.0, 0.0, 0.0])[a] - local[a]) <= size[a] for a in range(3))
+        assert not inside, f"geom {gid} fills the gap a bounding box would have"
+    assert gap is not None
+
+
+def test_the_measured_shape_is_in_the_objects_own_frame(selection, world):
+    """Boxes arrive in the selection's axes, so a rotated object's shape rotates with it
+    rather than staying axis-aligned in the world."""
+    boxes = [((0.25, 0.0, 0.0), (0.05, 0.05, 0.05))]
+    obj = object_from_selection("obj_01", load("crate"), shaped(selection, boxes))
+    model = compile_scene(world, [obj])
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+
+    gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, "obj_01__crate_part0")
+    body = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "obj_01__crate")
+
+    # Offset 0.25 along the selection's FRONT, which for this fixture is yawed 30 degrees.
+    front = np.asarray(selection.axes[0:3])
+    expected = data.xpos[body] + 0.25 * front
+    assert data.geom_xpos[gid] == pytest.approx(expected, abs=1e-6)

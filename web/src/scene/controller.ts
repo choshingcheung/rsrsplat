@@ -26,8 +26,14 @@ import { connect, type Service } from "../net/client";
 import { PoseStream } from "../net/interpolate";
 import { measureFrame, toSelection, type MeasuredFrame } from "../selection/frame";
 import { pick, rectFromPointers, type ScreenRect } from "../selection/pick";
+import { grow, toBoxes, voxelise } from "../selection/voxels";
 import { useScene } from "../store/scene";
-import type { ClientMessage, PhysicsObject, ServerMessage } from "../types/protocol";
+import type {
+  ClientMessage,
+  PhysicsObject,
+  ServerMessage,
+  ShapeBox,
+} from "../types/protocol";
 import { bind, orientationOf, unbind, type BoundObject } from "./binding";
 import { alignScene, roomObstacles } from "./ground";
 import { applyAlignment, readPly, type SplatCloud } from "./splats";
@@ -87,6 +93,9 @@ export class SceneController {
   private grabbed: { bodyName: string; plane: THREE.Plane } | null = null;
 
   private readonly raycaster = new THREE.Raycaster();
+
+  /** Heights of the detected horizontal surfaces, so a grow cannot leave through one. */
+  private surfaces: number[] = [];
 
   private counter = 0;
 
@@ -190,6 +199,14 @@ export class SceneController {
       // scene is the ground plane, and a bottle knocked off a worktop falls through the
       // worktop, through the floor, and out of the world.
       const obstacles = roomObstacles(aligned.centers, aligned.count, alignment.groundHeight);
+      // The floor and every worktop. A segmentation flood that crosses one of these
+      // leaves through the floor and comes back with the entire room.
+      this.surfaces = [
+        alignment.groundHeight,
+        ...obstacles
+          .filter((o) => o.kind === "surface")
+          .map((o) => o.position[2] + o.halfExtents[2]),
+      ];
 
       this.emit({
         type: "scene.load",
@@ -351,7 +368,7 @@ export class SceneController {
 
     const store = useScene.getState();
     store.setDrag(false, 0);
-    if (!rect || !this.cloud || !this.service) return;
+    if (!rect || !this.cloud) return;
 
     // The tiny rectangle a click produces is not a selection.
     if (Math.abs(rect.x1 - rect.x0) < 0.01 && Math.abs(rect.y1 - rect.y0) < 0.01) {
@@ -371,21 +388,61 @@ export class SceneController {
       return;
     }
 
-    const frame = measureFrame(
+    // The rectangle is a HINT, not the answer. It caught part of the object, some floor
+    // under it and a slice of the wall behind — and it MISSED whatever fell outside the box:
+    // the clipped corner, the handle sticking out. Removing exactly that set is what read as
+    // "it didn't remove the object", because it didn't. So grow the object out of it.
+    const hint = measureFrame(
       this.cloud.centers,
       indices,
       new THREE.Vector3(0, 0, 1),
       this.camera.position,
     );
 
-    this.selectedIndices = Uint32Array.from(indices);
+    const grown = grow(
+      voxelise(this.cloud.centers, this.cloud.count, hint),
+      this.cloud.centers,
+      indices,
+      hint,
+      { surfaces: this.surfaces },
+    );
+
+    // A flood that escaped is worse than no segmentation at all, so fall back to what the
+    // user actually drew rather than handing physics the whole room.
+    const escaped = grown.escaped || grown.indices.length < 32;
+    const owned = escaped ? Uint32Array.from(indices) : grown.indices;
+    const frame = escaped
+      ? hint
+      : measureFrame(this.cloud.centers, owned, new THREE.Vector3(0, 0, 1), this.camera.position);
+
+    // Measured again in the frame the object actually has. The first grid was built around
+    // the hint, and the grow moved the centroid, so reusing it would offset every box by
+    // however far the object turned out to extend beyond the rectangle.
+    let shape: ShapeBox[] = [];
+    if (!escaped) {
+      const grid = voxelise(this.cloud.centers, this.cloud.count, frame);
+      shape = toBoxes(
+        grid,
+        grow(grid, this.cloud.centers, owned, frame, { surfaces: this.surfaces }).cells,
+      );
+    }
+
+    this.selectedIndices = owned;
     this.selectedFrame = frame;
     this.selectionId = `sel_${(this.counter += 1)}`;
     this.showSelection(frame);
 
+    if (import.meta.env.DEV) {
+      console.debug(
+        `rsrsplat: selection ${indices.length} -> ${owned.length} splats, ` +
+          `${shape.length} collision boxes` +
+          (escaped ? " (grow escaped; falling back to the rectangle)" : ""),
+      );
+    }
+
     this.emit({
       type: "selection.commit",
-      selection: toSelection(this.selectionId, frame, indices.length),
+      selection: toSelection(this.selectionId, frame, owned.length, shape),
     });
     store.setPrompt({
       kind: "asking",

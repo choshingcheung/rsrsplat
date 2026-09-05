@@ -27,6 +27,7 @@ function selection(
     centroid,
     axes: [1, 0, 0, 0, 1, 0, 0, 0, 1],
     halfExtents,
+    shape: [],
   };
 }
 

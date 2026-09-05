@@ -127,6 +127,21 @@ class Obstacle(Wire):
     half_extents: Vec3 = Field(alias="halfExtents")
 
 
+class ShapeBox(Wire):
+    """One box of a selection's measured collision shape, in the selection's OWN frame.
+
+    Axes are the selection's -- ``center`` and ``half_extents`` run along front, left and up
+    -- so these drop straight into the object's body without any knowledge of the world.
+
+    They come from voxelising the object's splats and merging the occupied cells. That is the
+    difference between a chair with legs and a cuboid containing the air between them, and so
+    between a chair that tips onto a corner and one that lands flat every time.
+    """
+
+    center: Vec3
+    half_extents: Vec3 = Field(alias="halfExtents")
+
+
 class Selection(Wire):
     """What the user dragged a box around.
 
@@ -163,6 +178,11 @@ class Selection(Wire):
     #: Half-extents along axes columns 0, 1, 2 respectively. METRES.
     #: HALF, matching MJCF box ``size`` semantics, not full width.
     half_extents: Vec3 = Field(alias="halfExtents")
+
+    #: The object's measured shape, as boxes in this frame. Empty means "use the bounding
+    #: box", which the frame above already describes, and is the honest fallback when
+    #: segmentation could not find a clean component.
+    shape: tuple[ShapeBox, ...] = ()
 
 
 class PoseUpdate(Wire):
@@ -390,6 +410,7 @@ __all__ = [
     "SceneLoad",
     "SceneReady",
     "Selection",
+    "ShapeBox",
     "SelectionCommit",
     "ServerMessage",
     "SimControl",
