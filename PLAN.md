@@ -153,10 +153,24 @@ Browser, design-led, provable with no Python process running.
       crate stayed where it had fallen; and the door's spring was soft enough to still be
       visibly creeping after three seconds. It is now an exponential approach, which cannot
       oscillate and is what a real damped appliance door does.
-- [ ] **A5 · Selection.** Box drag, screen projection, depth filtering, live count, PCA with the
+- [~] **A5 · Selection.** Box drag, screen projection, depth filtering, live count, PCA with the
       determinant flip, highlight and dim.
-      *Proof:* a synthetic cloud of known dimensions gives half-extents within a few percent and
-      a positive determinant. A real scan is judged by eye — there is no honest alternative.
+      *Maths done and tested* (21 tests): a box of known size comes back with the right
+      half-extents; the frame is right-handed from every viewing angle; a rectangle over an
+      object takes the object and leaves the wall behind it; near-invisible splats are ignored;
+      a single floater in front does not drag the near plane forward. 54 web tests green.
+      *Still to wire:* the drag interaction and the highlight/dim, which need the viewport.
+      *Two design errors the tests caught, both of which looked fine:*
+      **(a)** `+front` taken from the camera's view *axis* is up to fifteen degrees off for an
+      object at the edge of the frame — the face you are looking at is the one turned toward
+      where you stand, not toward the centre of the screen.
+      **(b)** Worse: taking `+front` as a *direction* at all makes half-extents a property of
+      the viewpoint. A 600 mm box seen at 45° measures 850 mm, because the extent along a
+      rotated axis is the box's projection onto it — so the physics body would be bigger than
+      the object, by a factor that changed every time the user orbited. Fixed by measuring
+      along the object's own PCA axes and letting the camera only choose *which of the four
+      faces* is front. That is what the contract said all along: "the horizontal **principal
+      axis** pointing back toward the camera".
 - [ ] **A6 · The interface proper.** Prompt bar on commit, pending state, object list with parts
       and joint types, physics readout.
 - [ ] **A7 · Live binding.** Splats move out of the static scene into per-body groups; poses
