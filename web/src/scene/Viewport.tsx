@@ -23,7 +23,7 @@ interface DragBox {
   height: number;
 }
 
-export function Viewport({ onReady }: { onReady?: (controller: SceneController) => void }) {
+export function Viewport() {
   const host = useRef<HTMLDivElement>(null);
   const controller = useRef<SceneController | null>(null);
   const anchor = useRef<{ x: number; y: number } | null>(null);
@@ -35,14 +35,11 @@ export function Viewport({ onReady }: { onReady?: (controller: SceneController) 
 
     const scene = new SceneController(container);
     controller.current = scene;
-    onReady?.(scene);
 
     return () => {
       scene.dispose();
       controller.current = null;
     };
-    // Mounting once is the point: a re-created renderer would drop the loaded capture.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // --- drag and drop -------------------------------------------------------------------

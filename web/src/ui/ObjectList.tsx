@@ -9,7 +9,7 @@
  * meaning after "selected".
  */
 
-import type { SceneController } from "../scene/controller";
+import { activeController } from "../scene/controller";
 import { useScene } from "../store/scene";
 import type { PhysicsPart } from "../types/protocol";
 
@@ -22,7 +22,8 @@ function describe(part: PhysicsPart): string {
   return `${part.jointType} ${value}${unit}`;
 }
 
-export function ObjectList({ controller }: { controller: SceneController | null }) {
+export function ObjectList() {
+  const controller = activeController();
   const objects = useScene((s) => s.objects);
   const running = useScene((s) => s.running);
 
@@ -81,7 +82,7 @@ export function ObjectList({ controller }: { controller: SceneController | null 
         </div>
       ))}
 
-      <Transport controller={controller} running={running} />
+      <Transport running={running} />
     </div>
   );
 }
@@ -92,13 +93,8 @@ export function ObjectList({ controller }: { controller: SceneController | null 
  * Keyboard first — space and R — because during a demo one hand is gesturing at the screen.
  * The buttons exist so the shortcuts are discoverable, not the other way round.
  */
-function Transport({
-  controller,
-  running,
-}: {
-  controller: SceneController | null;
-  running: boolean;
-}) {
+function Transport({ running }: { running: boolean }) {
+  const controller = activeController();
   return (
     <div className="flex items-center gap-4">
       <button

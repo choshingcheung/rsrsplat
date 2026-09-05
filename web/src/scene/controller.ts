@@ -42,6 +42,20 @@ const POSE_EASE = 0.35;
 /** How far the unselected scene is dimmed while a selection is live. */
 const DIM = 0.28;
 
+/**
+ * The live controller.
+ *
+ * There is exactly one canvas, so there is exactly one of these. Threading it through React
+ * state instead added a failure mode for no benefit: if the state had not been set by the
+ * time the prompt bar submitted, `controller?.physicalize(...)` was a silent no-op and
+ * nothing anywhere said so.
+ */
+let current: SceneController | null = null;
+
+export function activeController(): SceneController | null {
+  return current;
+}
+
 export class SceneController {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
@@ -101,6 +115,7 @@ export class SceneController {
 
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(container);
+    current = this;
     this.tick();
   }
 
@@ -115,6 +130,9 @@ export class SceneController {
   }
 
   dispose(): void {
+    // Only if we are still the live one. React's StrictMode mounts, unmounts and remounts in
+    // development, and clearing unconditionally would blank a successor that already exists.
+    if (current === this) current = null;
     cancelAnimationFrame(this.raf);
     this.observer.disconnect();
     this.service?.stop();

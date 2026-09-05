@@ -12,7 +12,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { SceneController } from "../scene/controller";
+import { activeController } from "../scene/controller";
 import { useScene } from "../store/scene";
 
 const PLACEHOLDERS = [
@@ -22,7 +22,8 @@ const PLACEHOLDERS = [
   "a chest of drawers, built in",
 ];
 
-export function PromptBar({ controller }: { controller: SceneController | null }) {
+export function PromptBar() {
+  const controller = activeController();
   const prompt = useScene((s) => s.prompt);
   const [text, setText] = useState("");
   const input = useRef<HTMLInputElement>(null);
