@@ -61,6 +61,27 @@ ANCHOR_MAP: dict[str, Callable[[float, float, float], Vec3]] = {
 ANCHOR_NAMES = frozenset(ANCHOR_MAP)
 AXIS_NAMES = frozenset(AXIS_MAP)
 
+#: Which splats belong to a part hinged or mounted at each anchor, when the schema does not
+#: say. These are ``SubsetRegion`` values from the wire protocol, and the client resolves
+#: them geometrically against the selection's own oriented box.
+#:
+#: The defaults match the geometry the generator actually builds: a hinged panel spans the
+#: whole front face, so a door anchored anywhere along a front edge defaults to ``front``,
+#: not to the quarter its hinge happens to sit in. A model that knows better -- a wall oven
+#: whose door is the lower half and whose controls are the upper -- says so with an explicit
+#: ``region`` on the part.
+ANCHOR_TO_REGION: dict[str, str] = {
+    "bottom_front_edge": "front",
+    "top_front_edge": "top",
+    "left_front_edge": "front",
+    "right_front_edge": "front",
+    "interior_lower": "bottom_third",
+    "interior_upper": "top_third",
+    "front_panel_upper_right": "front_upper",
+    "front_panel_center": "front_upper",
+    "centre": "all",
+}
+
 
 def resolve_axis(name: str) -> Vec3:
     if name not in AXIS_MAP:

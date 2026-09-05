@@ -69,8 +69,18 @@ Python, headless, provable with `pytest`. No browser involved at any point.
       `bottom_front_edge` lands exactly where the fixture says the hinge is. Two routes to the
       same numbers means the wire's frame and the MJCF's frame really are one frame — the
       mismatch `PORTING.md` hazard 2 was about, and one that is invisible in a viewer.
-- [ ] **S5 · Simulation loop.** Stepping at 0.002, pose broadcast at ~30 Hz, decoupled.
-      *Proof:* real-time factor ≥ 1 headless; broadcast rate holds under load.
+- [x] **S5 · Simulation loop.** Stepping at 0.002, pose broadcast at ~30 Hz, decoupled.
+      *Proof:* **227x real time** with six objects and 19 bodies — two orders of magnitude of
+      headroom over a 30 Hz broadcast. A free crate falls and settles across a stream of
+      batches. 206 tests green, ruff clean.
+      *The one that bites:* MuJoCo models are immutable, so physicalising a second object
+      recompiles the first. The naive version drops every existing joint to zero, so the
+      dishwasher door the user just opened snaps shut when they physicalise a crate across the
+      room — a physics glitch to look at, a data loss in fact. State is carried across by joint
+      name, reading qpos/qvel widths off the model so a freejoint's seven values are not
+      truncated to one.
+      *Also:* a long gap is capped at 0.1 s of catch-up, so a descheduled service does not
+      block its own socket simulating the whole gap before sending anything.
 - [ ] **S6 · The service.** FastAPI, WebSocket, session state, `sim.control`, and
       `object.physicalize` end to end with a **stubbed** schema generator.
       *Proof:* a Python test client connects, physicalizes, and watches a body fall and come to

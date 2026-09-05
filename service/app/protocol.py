@@ -183,6 +183,12 @@ class PhysicsObject(Wire):
     #: Human-readable, derived from the prompt.
     label: str
     selection_id: str = Field(alias="selectionId")
+    #: Shell first, then each articulated part.
+    #:
+    #: **Order is significant.** Regions overlap by design -- the shell claims ``all`` and a
+    #: door claims ``front`` -- so a splat belongs to the LAST part whose region contains it.
+    #: The shell is therefore the fallback for everything no part claimed, and the client can
+    #: assign in one pass without special-casing the shell.
     parts: tuple[PhysicsPart, ...]
     #: KILOGRAMS, total across all parts.
     mass_kg: float = Field(alias="massKg", gt=0.0)

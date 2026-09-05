@@ -33,9 +33,10 @@ guessing the dimensions of an object it cannot see is not.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, get_args
 
-from .anchors import ANCHOR_NAMES, AXIS_NAMES
+from ..protocol import SubsetRegion
+from .anchors import ANCHOR_NAMES, ANCHOR_TO_REGION, AXIS_NAMES
 
 #: A hinge is a door, a slide is a drawer, a button is a slide with a spring, and fixed is
 #: welded to the parent. ``button`` is sugar: the generator expands it into a sprung slide.
@@ -54,6 +55,10 @@ VALID_AXES = set(AXIS_NAMES)
 VALID_ANCHORS = set(ANCHOR_NAMES)
 
 VALID_ACTIONS = {"grasp", "push", "press", "pull"}
+
+#: Which splats a part owns. Read straight out of the wire protocol's ``SubsetRegion`` so the
+#: validator can never accept a region the client has no predicate for.
+VALID_REGIONS = set(get_args(SubsetRegion))
 
 #: Comparison operators allowed in a ``requires`` clause.
 VALID_OPS = {">=", "<=", ">", "<", "=="}
@@ -223,7 +228,7 @@ def _validate_part(part: Any, index: int, names: set[str]) -> list[str]:
 
     # A fixed part is welded to its parent, so it has no axis and no range to check.
     if joint == "fixed":
-        return errs + _validate_affordances(part, name)
+        return errs + _validate_affordances(part, name) + _validate_region(part, name)
 
     if part.get("axis") not in VALID_AXES:
         errs.append(f"{name}: bad axis '{part.get('axis')}'. allowed: {_fmt(VALID_AXES)}")
@@ -233,7 +238,15 @@ def _validate_part(part: Any, index: int, names: set[str]) -> list[str]:
 
     errs += _validate_range(part, name, joint)
     errs += _validate_affordances(part, name)
+    errs += _validate_region(part, name)
     return errs
+
+
+def _validate_region(part: dict, name: str) -> list[str]:
+    given = part.get("region")
+    if given is not None and given not in VALID_REGIONS:
+        return [f"{name}: bad region '{given}'. allowed: {_fmt(VALID_REGIONS)}"]
+    return []
 
 
 def _validate_range(part: dict, name: str, joint: Any) -> list[str]:
@@ -380,6 +393,19 @@ def shape(schema: dict) -> str:
 
 def parts(schema: dict) -> list[dict]:
     return schema.get("parts", []) or []
+
+
+def region(part: dict) -> str:
+    """Which of the selection's splats this part owns.
+
+    Explicit if the schema says so, otherwise the default for its anchor. The backend never
+    sees a Gaussian, so this is a NAME -- the client resolves it against the selection's own
+    oriented box. See ``app/protocol.py``.
+    """
+    given = part.get("region")
+    if given:
+        return str(given)
+    return ANCHOR_TO_REGION.get(str(part.get("anchor", "")), "all")
 
 
 def friction(schema: dict) -> float:

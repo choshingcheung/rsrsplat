@@ -177,6 +177,14 @@ export interface PhysicsObject {
   /** Human-readable, derived from the prompt. */
   label: string;
   selectionId: string;
+  /**
+   * Shell first, then each articulated part.
+   *
+   * **Order is significant.** Regions overlap by design — the shell claims `all` and a door
+   * claims `front` — so a splat belongs to the LAST part whose region contains it. The shell
+   * is therefore the fallback for everything no part claimed, and assignment is one pass with
+   * no special case for the shell.
+   */
   parts: PhysicsPart[];
   /** KILOGRAMS, total across all parts. */
   massKg: number;
