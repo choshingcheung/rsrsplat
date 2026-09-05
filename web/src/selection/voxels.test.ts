@@ -105,20 +105,18 @@ describe("growing the object out of a partial selection", () => {
     expect(grown.indices.length).toBeGreaterThan(clipped.length);
   });
 
-  it("REJECTS a small selection, and this is the method's limit rather than a bug", () => {
-    // The measurement that decides this whole approach. A rectangle catching a third of an
-    // object legitimately grows 3x. A flood that walked out of the object and into the room
-    // measured 5x to 8x on the real capture. Those ranges overlap, so no ratio threshold
-    // separates them -- and without a ratio threshold nothing stops the runaway at all,
-    // because a room scan is ONE CONNECTED MASS and geometry alone cannot say where an
-    // object ends.
+  it("grows a small selection by a bounded amount, never by a room", () => {
+    // The measurement that decided the method. A rectangle catching a third of an object
+    // legitimately grows 3x; a flood that walked into the room measured 5x to 8x on the real
+    // capture. Those overlap, so no RATIO separates them -- but the distances are not close:
+    // the part the rectangle missed is centimetres away, the room is metres.
     //
-    // So the guard is deliberately conservative and this case is refused. Separating an
-    // object from the surface it rests on needs semantics, which means a model. See the
-    // module docstring.
+    // So the flood is dilated a hand's width past the selection and stops. It still cannot
+    // tell an object from the surface under it, but it can no longer be wrong by a room.
     const points: number[] = [];
     fill(points, [0, 0, 0.2], [0.4, 0.4, 0.4]);
     fill(points, [0, 0, -0.02], [3, 3, 0.04], 0.03);
+    const roomCount = points.length / 3;
 
     const { centers, count } = cloud(points);
     const frame = frameAt([0, 0, 0.2], [0.2, 0.2, 0.2]);
@@ -126,9 +124,35 @@ describe("growing the object out of a partial selection", () => {
 
     const grown = grow(voxelise(centers, count, frame), centers, third, frame, {
       surfaces: [0],
+      reach: 0.18,
     });
-    expect(grown.escaped).toBe(true);
-    expect(grown.indices.length).toBe(0); // the caller falls back to the rectangle
+
+    expect(grown.escaped).toBe(false);
+    expect(grown.indices.length).toBeGreaterThan(third.length); // it recovered something
+    expect(grown.indices.length).toBeLessThan(roomCount * 0.5); // and not the room
+  });
+
+  it("cannot reach a wall that is further away than the bound", () => {
+    // The runaway, in miniature: an object touching a floor touching a wall. Connectivity
+    // alone reaches all of it. Distance does not.
+    const points: number[] = [];
+    fill(points, [0, 0, 0.15], [0.3, 0.3, 0.3]);
+    const objectCount = points.length / 3;
+    fill(points, [0, 0, -0.02], [6, 6, 0.04], 0.03); // a big floor, no surface declared
+    fill(points, [2.5, 0, 1.0], [0.06, 4, 2], 0.04); // a wall, 2.5 m away, connected via it
+
+    const { centers, count } = cloud(points);
+    const frame = frameAt([0, 0, 0.15], [0.15, 0.15, 0.15]);
+    const seeds = inside(centers, count, [-0.15, -0.15, 0.05], [0.15, 0.15, 0.3]);
+
+    // Deliberately NO surface cut, so only the reach bound is holding the flood back.
+    const grown = grow(voxelise(centers, count, frame), centers, seeds, frame, {
+      surfaces: [],
+      reach: 0.18,
+    });
+
+    expect(grown.escaped).toBe(false);
+    expect(grown.indices.length).toBeLessThan(objectCount * 3);
   });
 
   it("does not escape through the floor", () => {

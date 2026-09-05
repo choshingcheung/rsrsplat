@@ -59,14 +59,22 @@ const MIN_SPLATS_PER_CELL = 2;
 const SURFACE_CUT = 0.045;
 
 /**
- * How much larger than the selection a grown component may be before it is rejected.
+ * How far outside the selection the grow may travel, metres, measured THROUGH solid cells.
  *
- * A selection that caught half an object legitimately doubles, so the threshold has to sit
- * above 2. A runaway measured 5x to 8x on the real capture. The gap between those is narrow,
- * and that narrowness is the point: this is a GUARD RAIL on a method that does not actually
- * work on a room scan, not a fix for it. See the module docstring.
+ * This is the bound that works, and it took measuring the failure to see why. Growth ratio
+ * cannot separate the two cases -- a rectangle that caught a third of an object legitimately
+ * triples, and the runaway measured 5x to 8x, so the ranges overlap. Distance separates them
+ * cleanly, because the two cases are not similar distances at all:
+ *
+ *   the clipped corner the rectangle missed     ~5 cm outside it
+ *   the flood that came back with the room      metres
+ *
+ * So the flood is dilated a hand's width past the selection and no further. It still cannot
+ * tell an object from the surface it rests on -- that needs a model, see the docstring -- but
+ * it can no longer be WRONG BY A ROOM. The error is bounded by construction rather than
+ * detected after the fact, which is why there is no ratio guard any more.
  */
-const MAX_GROWTH = 2.5;
+const REACH = 0.18;
 
 /** A box in the selection's own frame: axes are front, left, up. */
 export interface LocalBox {
@@ -142,16 +150,16 @@ export interface GrowOptions {
   /** Heights of detected horizontal surfaces, in WORLD z. The grow is cut at each. */
   surfaces?: number[];
   minSplatsPerCell?: number;
-  /** Refuse a component larger than this many cells; a runaway flood is not an object. */
+  /** Backstop: refuse a component larger than this many cells. Pathology only. */
   maxCells?: number;
   /**
-   * Refuse a component more than this many times the size of the seed set.
+   * How far past the selection the flood may travel, metres, measured through solid cells.
    *
-   * The budget that actually matters. Measured against the grid it is useless: on the real
-   * capture a flood reached 5,195 of 79,464 cells -- nowhere near a grid-relative cap, and
-   * eight times the splats the user selected.
+   * The bound that actually works. A ratio cannot separate a legitimate recovery from a
+   * runaway -- on the real capture those measured 3x and 5-8x, which overlap -- but the
+   * distances do not overlap at all: centimetres against metres. See `REACH`.
    */
-  maxGrowth?: number;
+  reach?: number;
 }
 
 /**
@@ -175,7 +183,8 @@ export function grow(
 ): { cells: Set<number>; indices: Uint32Array; escaped: boolean } {
   const minSplats = options.minSplatsPerCell ?? MIN_SPLATS_PER_CELL;
   const maxCells = options.maxCells ?? Math.floor(grid.counts.length * 0.5);
-  const maxGrowth = options.maxGrowth ?? MAX_GROWTH;
+  // Breadth-first steps, not metres: one step is one cell.
+  const maxSteps = Math.max(1, Math.round((options.reach ?? REACH) / grid.cell));
 
   const solid = new Uint8Array(grid.counts.length);
   for (let i = 0; i < grid.counts.length; i++) {
@@ -191,30 +200,40 @@ export function grow(
     if (at >= 0 && solid[at]) seedCells.add(at);
   }
 
+  // Breadth-first, so a cell's first visit is by its SHORTEST path from the selection --
+  // which is what makes "how far did this travel" meaningful. A depth-first stack would
+  // reach a neighbouring cell by a long way round and stop early for the wrong reason.
   const cells = new Set<number>();
-  const queue = [...seedCells];
   const [nx, ny] = grid.dims;
   let escaped = false;
 
-  while (queue.length) {
-    const at = queue.pop()!;
-    if (cells.has(at)) continue;
-    cells.add(at);
-    if (cells.size > maxCells) {
-      escaped = true;
-      break;
-    }
+  let frontier = [...seedCells];
+  for (const at of frontier) cells.add(at);
 
-    const x = at % nx;
-    const y = Math.floor(at / nx) % ny;
-    const z = Math.floor(at / (nx * ny));
-    for (const [dx, dy, dz] of NEIGHBOURS) {
-      const [ax, ay, az] = [x + dx, y + dy, z + dz];
-      if (ax < 0 || ay < 0 || az < 0) continue;
-      if (ax >= grid.dims[0] || ay >= grid.dims[1] || az >= grid.dims[2]) continue;
-      const next = index(grid, ax, ay, az);
-      if (solid[next] && !cells.has(next)) queue.push(next);
+  for (let step = 0; step < maxSteps && frontier.length && !escaped; step++) {
+    const next: number[] = [];
+    for (const at of frontier) {
+      const x = at % nx;
+      const y = Math.floor(at / nx) % ny;
+      const z = Math.floor(at / (nx * ny));
+      for (const [dx, dy, dz] of NEIGHBOURS) {
+        const [ax, ay, az] = [x + dx, y + dy, z + dz];
+        if (ax < 0 || ay < 0 || az < 0) continue;
+        if (ax >= grid.dims[0] || ay >= grid.dims[1] || az >= grid.dims[2]) continue;
+        const at2 = index(grid, ax, ay, az);
+        if (!solid[at2] || cells.has(at2)) continue;
+        cells.add(at2);
+        next.push(at2);
+        if (cells.size > maxCells) {
+          // A backstop for pathology only. With the reach bound above, a flood cannot
+          // ordinarily get near this -- it is capped by the dilated volume of the selection.
+          escaped = true;
+          break;
+        }
+      }
+      if (escaped) break;
     }
+    frontier = next;
   }
 
   const indices: number[] = [];
@@ -223,14 +242,6 @@ export function grow(
       const bucket = grid.members.get(at);
       if (bucket) indices.push(...bucket);
     }
-  }
-
-  // The check that a grid-relative budget missed entirely. A room scan is ONE CONNECTED
-  // MASS -- an object touches the surface it stands on, which touches the wall, which
-  // touches everything -- so a flood that is not stopped by geometry alone will happily
-  // return most of the room while looking, cell-count-wise, perfectly reasonable.
-  if (!escaped && seeds.length > 0 && indices.length > seeds.length * maxGrowth) {
-    return { cells: new Set(), indices: new Uint32Array(0), escaped: true };
   }
 
   return { cells, indices: Uint32Array.from(indices), escaped };

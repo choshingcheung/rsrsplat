@@ -43,7 +43,15 @@ export interface SolidOptions {
   roomHeight?: number;
   /** Splats owned by a physicalised object, which must not also be scenery. */
   exclude?: ArrayLike<number>;
-  /** Cap on geoms handed to the solver. */
+  /**
+   * Cap on geoms handed to the solver.
+   *
+   * Generous on purpose: hitting it does not degrade the room gracefully, it leaves a HOLE,
+   * because the merger stops emitting boxes rather than covering the remainder more coarsely.
+   * The desk capture needs 1157 at 8 cm and the first cap was 1024, which quietly deleted the
+   * last part of the room the sweep reached. Measured cost in MuJoCo: 2000 static boxes
+   * compile in 338 ms and still simulate at 77x real time, so the headroom is real.
+   */
   maxBoxes?: number;
 }
 
@@ -68,7 +76,7 @@ export function sceneCollision(
     minOpacity = 0.1,
     roomHeight = 3.2,
     exclude,
-    maxBoxes = 1024,
+    maxBoxes = 4096,
   } = options;
 
   const skip = new Uint8Array(count);
