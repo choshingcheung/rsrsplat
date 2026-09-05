@@ -1,0 +1,279 @@
+/**
+ * The visual language, fixed before any component exists.
+ *
+ * The idea: this is an INSTRUMENT POINTED AT A ROOM, not a dashboard. A theodolite, a
+ * rangefinder, a laser scanner. That decision produces every rule below, and rules out the
+ * things a web app reaches for by default — cards, sidebars, drop shadows, a header bar.
+ *
+ * What it means in practice:
+ *
+ * - The scan is the only saturated thing on screen. Everything else is greyscale, and any
+ *   colour that is not the accent is a bug.
+ * - Chrome is hairlines and corner brackets, not filled panels. An instrument frames what it
+ *   is looking at; it does not cover it.
+ * - Numbers are monospace with TABULAR figures, so a frame counter does not shiver as the
+ *   digits change width. This is the single most instrument-like detail available.
+ * - ONE accent, with exactly two meanings: THIS IS SELECTED, and THIS IS ALIVE NOW. If it
+ *   appears anywhere else it has stopped meaning anything.
+ * - Motion decelerates like something with mass. The subject is physics; springy overshoot
+ *   on a settling crate would be a lie about what is happening.
+ */
+
+:root {
+  /* --- ground -------------------------------------------------------------------------
+   * Near-black, very slightly cool. Not #000: a pure black ground crushes the scan's own
+   * shadows, and a photoreal capture is mostly shadow.
+   */
+  --ink-900: #0a0b0d; /* the page behind the canvas */
+  --ink-800: #101216; /* a floating surface */
+  --ink-700: #171a1f; /* a raised control */
+
+  --line: #23262b; /* hairline, the default border everywhere */
+  --line-bright: #363a42; /* a hairline that wants noticing */
+
+  /* --- text ----------------------------------------------------------------------------
+   * Three steps, no more. An instrument has a reading, a label, and a scale marking.
+   */
+  --text-hi: #e9ebee;
+  --text-mid: #9198a2;
+  --text-lo: #565c66;
+
+  /* --- the accent ----------------------------------------------------------------------
+   * Survey-laser lime. Two meanings only: selected, and alive.
+   *
+   * Chosen for legibility over an arbitrary photoreal room rather than for taste alone: a
+   * scan of a real interior is full of warm neutrals, so a warm accent disappears into it.
+   * This does not occur in domestic interiors, which is exactly why it reads as a marker
+   * laid over the world rather than as part of it. It is also the colour of a real laser
+   * level, which is the instrument this interface is pretending to be.
+   */
+  --live: #d2ff3a;
+  --live-soft: rgba(210, 255, 58, 0.16);
+  --live-edge: rgba(210, 255, 58, 0.42);
+  --live-glow: rgba(210, 255, 58, 0.09);
+
+  /* Failure only. Never decorative, never a chart colour. */
+  --warn: #ff6b4a;
+
+  /* --- type ----------------------------------------------------------------------------
+   * Instrument Sans for interface text — a grotesque with tight apertures and a technical
+   * bearing, and named, entirely coincidentally, for what this is.
+   * Martian Mono for every number — deliberately wide, which at small sizes reads as an
+   * engraved scale rather than as code.
+   */
+  --font-ui: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-num: "Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* An instrument's type is small and exact. Nothing here is a heading. */
+  --size-micro: 9.5px;
+  --size-tick: 10.5px;
+  --size-read: 12px;
+  --size-body: 13px;
+  --size-lead: 15px;
+
+  --track-wide: 0.14em; /* small caps labels */
+  --track-num: 0.02em;
+
+  /* --- space ---------------------------------------------------------------------------
+   * A 4px base. Instruments are gridded.
+   */
+  --gap-1: 4px;
+  --gap-2: 8px;
+  --gap-3: 12px;
+  --gap-4: 16px;
+  --gap-5: 24px;
+  --gap-6: 32px;
+  --gap-7: 48px;
+
+  /* --- motion --------------------------------------------------------------------------
+   * Everything decelerates. Nothing overshoots. The one exception is the moment an object
+   * becomes physical, which gets a single sweep of the accent and is the whole demo.
+   */
+  --ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-snap: cubic-bezier(0.32, 0.72, 0, 1);
+  --t-fast: 120ms;
+  --t-base: 220ms;
+  --t-slow: 420ms;
+
+  color-scheme: dark;
+}
+
+/* --------------------------------------------------------------------------------------
+ * Reset, kept to what this interface actually needs.
+ * ------------------------------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ink-900);
+  color: var(--text-hi);
+  font-family: var(--font-ui);
+  font-size: var(--size-body);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden; /* full-bleed viewport: the page itself never scrolls */
+}
+
+/* The viewport is the product. Nothing selects, nothing drags an image out of it. */
+canvas {
+  display: block;
+  touch-action: none;
+}
+
+::selection {
+  background: var(--live-soft);
+  color: var(--text-hi);
+}
+
+/* --------------------------------------------------------------------------------------
+ * Primitives
+ * ------------------------------------------------------------------------------------ */
+
+/**
+ * Every number on screen. Tabular figures are the point: without them a frame counter
+ * shivers as 1s and 8s swap, which is the difference between a readout and a fidget.
+ */
+.num {
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: var(--track-num);
+}
+
+/** A scale marking: the label beside a reading, never a heading. */
+.tick {
+  font-family: var(--font-ui);
+  font-size: var(--size-micro);
+  font-weight: 500;
+  letter-spacing: var(--track-wide);
+  text-transform: uppercase;
+  color: var(--text-lo);
+}
+
+/**
+ * A floating surface. Nearly transparent, backdrop-blurred, hairline-bordered — it sits
+ * OVER the scan and never pushes it around. No shadow: an instrument's overlays are etched
+ * onto the glass, not stacked on top of it.
+ */
+.pane {
+  background: rgba(16, 18, 22, 0.72);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  border: 1px solid var(--line);
+  border-radius: 2px; /* almost square. Rounded corners are upholstery. */
+}
+
+/** State: this is selected, or this is alive. The only two things the accent may mean. */
+.live {
+  color: var(--live);
+}
+
+.live-border {
+  border-color: var(--live-edge);
+  box-shadow: 0 0 0 1px var(--live-glow), 0 0 24px -6px var(--live-glow);
+}
+
+/* --------------------------------------------------------------------------------------
+ * Motion
+ * ------------------------------------------------------------------------------------ */
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/** The moment an object becomes physical. One sweep, once. This is the demo. */
+@keyframes energise {
+  0% {
+    box-shadow: 0 0 0 0 var(--live-edge);
+    border-color: var(--live);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(210, 255, 58, 0);
+    border-color: var(--live);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(210, 255, 58, 0);
+    border-color: var(--line);
+  }
+}
+
+/** A reading that is being waited on, rather than one that is merely low. */
+@keyframes pulse-dim {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.rise {
+  animation: rise var(--t-base) var(--ease-settle) both;
+}
+
+.fade {
+  animation: fade var(--t-base) var(--ease-settle) both;
+}
+
+.energise {
+  animation: energise var(--t-slow) var(--ease-settle);
+}
+
+.pending {
+  animation: pulse-dim 1.4s var(--ease-snap) infinite;
+}
+
+/**
+ * Staggered reveal, so the instrument comes up in order rather than all at once. Used on
+ * first load and when a scene finishes parsing.
+ */
+.stagger-1 {
+  animation-delay: 60ms;
+}
+.stagger-2 {
+  animation-delay: 120ms;
+}
+.stagger-3 {
+  animation-delay: 180ms;
+}
+.stagger-4 {
+  animation-delay: 240ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

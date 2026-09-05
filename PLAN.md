@@ -104,9 +104,20 @@ Python, headless, provable with `pytest`. No browser involved at any point.
 
 Browser, design-led, provable with no Python process running.
 
-- [ ] **A1 · Scaffold and design system.** Vite + React + TS + Tailwind + Three.js. Committed
-      tokens before any component exists: one near-black ground, one accent, a type pairing, a
-      spacing scale, motion curves. Retrofitting a visual language never happens.
+- [x] **A1 · Scaffold and design system.** Vite + React + TS + Tailwind + Three.js.
+      *The direction: an instrument pointed at a room, not a dashboard.* A theodolite, a
+      rangefinder, a laser scanner. That one decision produces every rule in
+      `src/styles/tokens.css` and rules out what a web app reaches for by default — cards,
+      sidebars, drop shadows, a header bar.
+      *Concretely:* viewfinder corner brackets and an edge scale instead of panels; Instrument
+      Sans for interface text and Martian Mono for every number, with tabular figures so a
+      frame counter does not shiver as digits change width; a cool near-black ground rather
+      than pure black, so the scan's own shadows survive; motion that decelerates and never
+      overshoots, because the subject is physics.
+      *One accent, survey-laser lime, with exactly two meanings:* this is selected, this is
+      alive now. Chosen for legibility over an arbitrary photoreal interior — a scan of a real
+      room is full of warm neutrals, so a warm accent disappears into it, and this colour does
+      not occur domestically, which is why it reads as a marker laid over the world.
 - [x] **A2 · Renderer spike — first, before anything else.** Prove the chosen splat library
       exposes per-splat centroids **and** allows a subset to be split into an independently
       transformable group.
@@ -122,10 +133,16 @@ Browser, design-led, provable with no Python process running.
       measured from the parsed centres and not from re-read packed data; and a box at the
       centroid of a room scan comes back empty, because splats live on surfaces and the middle
       of a room is air.
-- [ ] **A3 · The viewport.** Full-bleed canvas, orbit, drag-and-drop `.ply`, loading state,
+- [~] **A3 · The viewport.** Full-bleed canvas, orbit, drag-and-drop `.ply`, loading state,
       count and frame rate readout in monospace.
-      *Proof:* the real capture renders and orbits smoothly, and the Gaussian count matches
-      S1's number exactly — which makes the Python parser a free reference implementation.
+      *Built:* Three.js and Spark outside React entirely — the scene graph is mutable 60 Hz
+      state and reconciling it through a component tree would be slower and harder to reason
+      about. React owns the chrome, the viewport owns the pixels, the store carries the four
+      numbers that cross. Typecheck and build both clean; dev server serves.
+      *Still to verify by eye:* that the capture actually renders and orbits smoothly. There is
+      no browser automation in this environment, so this one needs a human at the screen.
+      *Note:* the camera frames on a 2nd-to-98th-percentile extent, not the bounding box —
+      floaters inflate the raw box threefold and framing on it puts the room at a speck.
 - [ ] **A4 · Mock server.** Every server message implemented in-browser: invents plausible
       bodies, streams a fake settle curve.
       *Proof:* the full interface works with Python not running.
