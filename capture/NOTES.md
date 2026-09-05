@@ -105,7 +105,7 @@ the real file, which is the test `ground.ts` itself uses — a floor is the dens
 because objects collect on it and a ceiling is flat and featureless:
 
 ```
-y: -1.047 .. 2.189   (the smallest extent, so the vertical axis)
+y: -1.047 .. 2.189   (two sharp peaks; x and z have none)
 
 density along y, low -> high:
   -0.723  35.12%  ############################################################
@@ -142,13 +142,65 @@ generated 360 world including geometry beyond the room itself. Since Marble repo
 
 ---
 
+## The image path, and a second world — 2026-09-05
+
+A real photograph of a desk, `marble-1.0-draft`, 230 credits, 26 seconds.
+
+**The upload path failed the first time it ever ran**, which is exactly where it was expected
+to. The media asset comes back as **`media_asset_id`**, not `id` — the same divergence as
+`world_id`, from the same documentation. Reading only `id` aborted the run.
+
+It aborted *safely*: the client's own validation threw before the generate call, so nothing
+was charged. The ledger recorded a `created` run with no operation id, and `marble status`
+correctly refused to resume it — nothing had been paid for.
+
+Two further things the live response carried that the documentation did not mention: a
+`curl_example` field, and `x-goog-content-length-range: 0,104857600` — a **100 MB** upload
+limit, not the 1 GB the sample header in the docs implied.
+
+`fixtures/prepare_upload.json` is now recorded from the live response, with the signature
+replaced by a placeholder: a signed URL is a capability and does not belong in a committed
+fixture. The old error message printed the whole response body, signed URL included; it now
+prints key names only.
+
+### `semantics_metadata` is null for an image world too
+
+Same as the text world. So this is not a property of text generation — draft worlds simply do
+not carry a metric scale. **The sidecar cannot supply one**, and `ground.ts` must fit it.
+
+### y-up confirmed on a second, independent world
+
+The desk capture is much larger and messier than the kitchen — a p1–p99 extent of 7.2 x 4.7 x
+12.6 against raw extents of 27 x 38 x 43, so **floaters inflate this one about fourfold**,
+just as they do the playroom capture. Any axis test on raw extents is worthless here.
+
+Counting *sharp* peaks — local maxima well above their neighbourhood, which is what
+`ground.ts` means by a layer — on the trimmed range:
+
+| axis | sharp peaks | what they are |
+|---|---|---|
+| x | 1 | a wall |
+| **y** | **2**, at -1.75 (20.0%) and +0.50 (12.1%) | **floor and ceiling** |
+| z | 3, all within 1.5 units of each other | the desk surface and the window reveal |
+
+Two well-separated peaks with the denser one low: the same signature the kitchen showed. So
+**+Y is up and the floor is at minimum y** on both a text-derived and an image-derived world.
+
+**A heuristic that failed, recorded so it is not tried again:** taking the vertical axis to be
+the one with the *smallest extent* works on a clean capture and is badly wrong on this one —
+floaters made x look smallest, and the answer came out as x with the floor overhead. Counting
+bins above a threshold fails too, because a broad hump trips it; it has to be local maxima.
+`ground.ts` reaching for RANSAC planes and layer scores rather than extents is right, and this
+is a second capture demonstrating why.
+
+---
+
 ## Still to measure
 
 - Whether a **standard-model** world (`marble-1.1`, ~$1.26) populates `semantics_metadata`.
   That is the single open question that decides whether the sidecar can ever carry a metric
   scale, and it cannot be answered without spending.
-- Whether an **image** prompt behaves the same. The upload path -- prepare, signed PUT,
-  required headers -- has still never run against the live API. It is the code most likely to
-  be wrong and the least exercised.
-- Whether the axis finding holds for image- and panorama-derived worlds, or is particular to
-  text generation.
+- Whether a **panorama** input behaves the same, and whether `is_pano` detection works. A
+  pano costs 0 credits to convert, so this is the cheapest untested path left.
+- Whether **multi-image** improves geometry. It needs azimuths, and photographs taken from a
+  narrow arc cannot supply honest ones.

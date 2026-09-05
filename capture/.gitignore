@@ -4,6 +4,9 @@
 # The run ledger is per-machine: world ids and local paths, useful to nobody else.
 runs/
 
+# Input photographs. Personal, and binaries: referenced by path, never committed.
+assets/
+
 # Downloaded captures. Large binaries stay out of git and are referenced by path.
 out/
 *.ply
