@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -46,24 +45,6 @@ def _quiet(_message: str) -> None:
 
 class NotEnoughCredits(MarbleError):
     """Refused before spending, rather than discovered halfway through."""
-
-
-@dataclass(frozen=True)
-class Estimate:
-    """What a run will cost, worked out before anything is committed."""
-
-    credits: int
-    remaining: int | None = None
-
-    @property
-    def usd(self) -> float:
-        from .client import usd
-
-        return usd(self.credits)
-
-    @property
-    def affordable(self) -> bool:
-        return self.remaining is None or self.remaining >= self.credits
 
 
 def build_prompt(text: str | None, image: Path | None, asset_id: str | None) -> dict[str, Any]:
@@ -326,7 +307,6 @@ def write_sidecar(run: Run, world: dict[str, Any], info: ply.PlyInfo) -> Path:
 __all__ = [
     "TOOL",
     "VERSION",
-    "Estimate",
     "NotEnoughCredits",
     "advance",
     "build_prompt",

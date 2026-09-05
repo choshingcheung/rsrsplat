@@ -96,7 +96,6 @@ class Run:
     # What came back.
     operation_id: str | None = None
     world_id: str | None = None
-    export_operation_id: str | None = None
     ply_path: str | None = None
     sidecar_path: str | None = None
     splat_count: int | None = None
@@ -151,10 +150,6 @@ class Run:
         return self.update(status="failed", error=redact(str(reason))[:2000])
 
     # -- questions the CLI asks -----------------------------------------------------------
-
-    @property
-    def reached(self) -> int:
-        return STATUSES.index(self.status) if self.status in STATUSES else -1
 
     @property
     def finished(self) -> bool:
