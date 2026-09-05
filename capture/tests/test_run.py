@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from marble.run import Ledger, Run, slugify
+from marble.run import Ledger, Run, redact, slugify
 
 
 @pytest.fixture
@@ -167,3 +167,42 @@ def test_describe_is_readable_at_a_terminal(ledger: Ledger):
     run.update(status="generating", world_id="9f1c2a44-0c3f-4a2e")
     assert "generating" in run.describe()
     assert "9f1c2a44" in run.describe()
+
+
+# ---------------------------------------------------------------------------------------
+# A ledger must not be able to store a credential
+# ---------------------------------------------------------------------------------------
+
+
+SIGNED = (
+    "https://storage.googleapis.com/bucket/asset.jpeg"
+    "?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=42dec64982d2689b8e34d263a1008faf"
+)
+
+
+def test_a_persisted_error_cannot_carry_a_signed_url(ledger: Ledger):
+    """This happened. An early error quoted a whole response body and fail() wrote it down.
+
+    A signed URL is a capability, not just a link: whoever holds it can read or write the
+    object until it expires.
+    """
+    run = start(ledger)
+    run.fail(f"upload failed: {SIGNED}")
+
+    on_disk = run.path.read_text(encoding="utf-8")
+    assert "X-Goog-Signature" not in on_disk
+    assert "42dec64982d2689b8e34d263a1008faf" not in on_disk
+    # The endpoint survives, because knowing which call failed is the useful half.
+    assert "storage.googleapis.com/bucket/asset.jpeg" in on_disk
+    assert "<redacted>" in on_disk
+
+
+def test_redaction_leaves_ordinary_text_alone():
+    assert redact("no such file: out/kitchen.ply") == "no such file: out/kitchen.ply"
+    assert redact("see https://docs.worldlabs.ai/") == "see https://docs.worldlabs.ai/"
+
+
+def test_redaction_handles_several_urls_in_one_message():
+    out = redact(f"first {SIGNED} then {SIGNED}")
+    assert out.count("<redacted>") == 2
+    assert "X-Goog-Signature" not in out

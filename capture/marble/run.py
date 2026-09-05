@@ -1,7 +1,7 @@
 """The run ledger: what was asked for, what it cost, and how far it got.
 
-**Why this exists, and why it is built before the CLI.** A generation is about five minutes of
-someone else's compute that has already been charged. Every other failure in this tool is free
+**Why this exists, and why it is built before the CLI.** A generation is someone else's
+compute, charged the moment it is accepted. Every other failure in this tool is free
 to retry -- a bad argument, a rejected key, a truncated download. Losing the ``operation_id``
 of a world that is already being built is the one failure that costs money to recover from,
 and the way it happens is mundane: the terminal is closed, the laptop sleeps, the process is
@@ -45,6 +45,26 @@ DEFAULT_DIR = Path(__file__).resolve().parents[1] / "runs"
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+#: A URL's query string, which is where a signed URL keeps its signature.
+_QUERY = re.compile(r"(https?://[^\s\"'<>]+?)\?[^\s\"'<>]+")
+
+
+def redact(text: str) -> str:
+    """Strip query strings out of any URL before it is written down.
+
+    A signed upload or download URL **is** a capability: anyone holding it can read or write
+    the object until it expires. One reached this ledger for real -- an early error message
+    quoted a whole response body, and ``fail()`` persisted it verbatim to disk.
+
+    ``runs/`` is gitignored so it never reached git, and such a URL expires in an hour, but a
+    record that can hold a credential at all is a record that will eventually hold a live one.
+    So every persisted error goes through here, rather than relying on each error message
+    being careful. The URL is kept, minus everything after the question mark, because knowing
+    *which* endpoint failed is the useful half.
+    """
+    return _QUERY.sub(r"\1?<redacted>", text)
 
 
 def slugify(text: str, fallback: str = "world") -> str:
@@ -128,7 +148,7 @@ class Run:
         return self.save()
 
     def fail(self, reason: str) -> Run:
-        return self.update(status="failed", error=str(reason)[:2000])
+        return self.update(status="failed", error=redact(str(reason))[:2000])
 
     # -- questions the CLI asks -----------------------------------------------------------
 
