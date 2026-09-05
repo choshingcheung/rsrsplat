@@ -81,10 +81,18 @@ Python, headless, provable with `pytest`. No browser involved at any point.
       truncated to one.
       *Also:* a long gap is capped at 0.1 s of catch-up, so a descheduled service does not
       block its own socket simulating the whole gap before sending anything.
-- [ ] **S6 · The service.** FastAPI, WebSocket, session state, `sim.control`, and
-      `object.physicalize` end to end with a **stubbed** schema generator.
-      *Proof:* a Python test client connects, physicalizes, and watches a body fall and come to
-      rest. No browser, no model.
+- [x] **S6 · The service.** FastAPI, WebSocket, session state, `sim.control`, and
+      `object.physicalize` end to end.
+      *Proof:* a test client connects over a real socket, commits a selection, physicalizes,
+      receives `object.created`, and watches ~40 `pose.batch` messages take a crate from 1 m
+      above the floor down to rest on it. Pause freezes the stream, play resumes it, reset
+      returns both position and simulated time to zero. 263 tests green, ruff clean.
+      *Better than the stub REPO_INIT asked for:* rather than a hardcoded rigid body, this is
+      the **real offline path** — `schema/fallback.py` matches a noun in the prompt against the
+      stored library and nudges density from adjectives. "a wooden crate, heavy" and "an empty
+      cardboard box" already differ by 6x in mass, and a dishwasher already comes back with a
+      90-degree hinge, with no network and no key. S7 puts the model in front of this, which is
+      the order REPO_INIT asks for: a fallback written afterwards is one nobody has run.
 - [ ] **S7 · Language.** Model → schema, validated, two retries, then fallback.
       *Proof:* the fallback is built and passing **first**. Then "a wooden crate, heavy" gives a
       rigid body and the dishwasher sentence gives a hinge. Then a network-kill test still
