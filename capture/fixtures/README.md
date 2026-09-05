@@ -19,16 +19,25 @@ agrees with the server.
 | `world.json` | returned bare, not wrapped; keyed `world_id`, not `id`; `semantics_metadata` sits under `assets.splats` |
 | `world_without_semantics.json` | a real draft world: `semantics_metadata` is `null` |
 | `credits.json` | confirmed correct as documented |
+| `prepare_upload.json` | the asset id is `media_asset_id`, not `id`; the upload limit is 100 MB, not 1 GB; there is an undocumented `curl_example` field |
+
+`prepare_upload.json` holds a real signed URL with **the signature replaced by a placeholder**.
+A signed URL is a capability; it does not belong in a committed fixture, and it would expire
+within the hour anyway.
 
 **Still only transcribed, never observed:**
 
-`prepare_upload.json`, `generate.json`, `operation_running.json`, `operation_done.json`,
-`operation_failed.json`, `export_pending.json`, `export_done.json`, and every `error_*.json`.
+`generate.json`, `operation_running.json`, `operation_done.json`, `operation_failed.json`,
+`export_pending.json`, `export_done.json`, and every `error_*.json`.
 
-The upload pair is the exposure worth naming: `prepare_upload.json` drives the whole signed-PUT
-path, which has never run against the live API. A green suite says that path is coherent, not
-that it works. When an image run happens, capture the responses verbatim, write them over these
-files, and record any difference in `capture/NOTES.md`.
+The error bodies are the exposure worth naming. Every one of them is invented, so the client's
+handling of 400, 402, 422 and 429 is coherent rather than confirmed -- and 402 in particular
+matters, because it is what a run hits when the credits run out mid-session. The operation
+shapes are better supported: two real generations polled to completion through them, so their
+happy path is observed even though the fixture text was written by hand.
+
+When any of these is seen for real, capture it verbatim, write it over the file, and record the
+difference in `capture/NOTES.md`.
 
 ## The files
 
@@ -40,11 +49,14 @@ files, and record any difference in `capture/NOTES.md`.
 | `operation_running.json` | `GET /operations/{id}` mid-flight, carrying `metadata.world_id` |
 | `operation_done.json` | the same, finished, with the World in `response` |
 | `operation_failed.json` | a content policy refusal — a real outcome, not a server fault |
-| `world.json` | `GET /worlds/{id}`, including `semantics_metadata` |
+| `world.json` | `GET /worlds/{id}` — bare, keyed `world_id`, semantics under `assets.splats` |
+| `world_without_semantics.json` | the same, as a real draft world returns it: semantics `null` |
+| `worlds_list.json` | `POST /worlds:list` — envelope `worlds`, plus `next_page_token` |
 | `export_pending.json` | `POST /worlds/{id}:export` when the conversion is not cached |
 | `export_done.json` | the cached case, with the signed URL in `response.url` |
 | `error_400/402/422/429.json` | the error bodies, each of which needs its own handling |
 
 The numbers in `world.json` — `metric_scale_factor` and `ground_plane_offset` — are invented
-placeholders. Their **shape** is what the tests assert on. Their values will only mean
-something once a real world has been generated.
+placeholders, and deliberately kept that way: no real world has yet reported either, so this
+fixture exists to prove the client *would* read them from the right place if one did.
+`world_without_semantics.json` is the case that actually occurs.

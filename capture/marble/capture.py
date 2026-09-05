@@ -175,7 +175,9 @@ def _wait_for_world(
             f"Check `marble worlds` for a world this run may have paid for."
         )
 
-    say(f"waiting for {run.operation_id} (about five minutes)")
+    # Measured: a draft world takes 21-26 seconds. The documented five minutes is presumably
+    # the larger models, which are untested here -- so say both rather than either.
+    say(f"waiting for {run.operation_id} (draft takes about half a minute)")
 
     seen_world = run.world_id
 
@@ -300,10 +302,11 @@ def write_sidecar(run: Run, world: dict[str, Any], info: ply.PlyInfo) -> Path:
                 "capture's scale is unknown -- fit it from the cloud."
             ),
             "axes": (
-                "MEASURED, not assumed: the vertical axis is Y and +Y is UP, with the floor "
-                "at MINIMUM y. Determined by density -- 35.1% of splats in the lowest band "
-                "against 24.8% in the highest, the test ground.ts itself uses. Note this "
-                "contradicts CLAUDE.md's 'Marble is OpenCV, +y down'. The transform that "
+                "MEASURED on two worlds, one text-derived and one from a photograph, not "
+                "assumed: the vertical axis is Y and +Y is UP, with the floor at MINIMUM y. "
+                "Established by looking for the floor-and-ceiling pair of sharp density peaks "
+                "on percentile-trimmed data, which is the test ground.ts itself uses. Note "
+                "this contradicts CLAUDE.md's 'Marble is OpenCV, +y down'. The transform that "
                 "lands it Z-up with the floor at minimum z is service/app/splat/transforms.py "
                 "'opencv_to_zup' (new_z = old_y); 'yup_to_zup' inverts it and puts the floor "
                 "overhead. See capture/NOTES.md."

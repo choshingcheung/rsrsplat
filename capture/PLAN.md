@@ -43,8 +43,9 @@ a 403 that reads like an auth problem and is not one.
 *Proof:* killed mid-poll, a resume completes the same run. A crash between the generate call
 and the first poll still leaves a recoverable operation id on disk.
 
-*Why it is this early:* a generation is five minutes of someone else's compute that has already
-been paid for. Losing one to a dropped process is the only irreversible failure in this tool.
+*Why it is this early:* a generation is someone else's compute, already charged the moment it
+is accepted. Losing one to a dropped process is the only irreversible failure in this tool --
+and it turns out to take about 25 seconds, so the window is small and easy to underestimate.
 
 ## M3 · The CLI and the money guard  [x]
 
@@ -73,6 +74,8 @@ opens. A valid header passes. The sidecar's splat count matches the header's.
 ## M5 · One real run  [x]
 
 - [x] A single live `marble-1.0-draft` generation, from text. 230 credits, 21 seconds.
+- [x] And a second from a real photograph, which is what found the upload bug. 230 credits,
+      26 seconds.
 - [x] The result read by the repo's own `python -m app.splat`, **as a subprocess**: both
       parsers agree exactly on 2,276,736 splats and SH degree 0.
 
@@ -107,4 +110,7 @@ If this has to be cut short, the order of sacrifice:
 
 - Whether a standard-model world reports `semantics_metadata`. ~$1.26 to find out, and it
   decides whether the sidecar can ever carry a metric scale. See `NOTES.md`.
-- An image run. The upload path has still never touched the live API.
+- A **panorama** input, and whether `is_pano` detection works. A pano costs 0 credits to
+  convert, so it is the cheapest untested path left.
+- **Multi-image**, which needs azimuths. Photographs from a narrow arc cannot supply honest
+  ones, so this wants a deliberate set shot around a scene.

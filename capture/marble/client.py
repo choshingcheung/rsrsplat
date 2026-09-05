@@ -5,7 +5,7 @@ Six calls, in the order a capture happens:
     1. POST /media-assets:prepare_upload   ask where to put an image
     2. PUT  <signed url>                   put it there
     3. POST /worlds:generate               start a world, get an operation
-    4. GET  /operations/{id}               poll, about five minutes
+    4. GET  /operations/{id}               poll; a draft world takes about 25 seconds
     5. POST /worlds/{id}:export            ask for a PLY, get another operation
     6. GET  <signed url>                   download it
 
@@ -474,8 +474,9 @@ class Marble:
 
         Polling is not rate limited -- the published limits are on generation starts -- so the
         interval here is politeness rather than necessity. The timeout is a real budget: a
-        generation takes about five minutes, and thirty is long enough that hitting it means
-        something is wrong rather than slow.
+        a draft generation measured 21-26 seconds and the documentation quotes five minutes
+        for the larger models, so thirty is long enough that hitting it means something is
+        wrong rather than slow.
         """
         started = now()
         while True:
