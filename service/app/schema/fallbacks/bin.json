@@ -1,0 +1,59 @@
+{
+  "object": "pedal_bin",
+  "mobility": "fixed",
+  "shape": "shell",
+  "frame": {
+    "size": [
+      0.2,
+      0.2,
+      0.3
+    ],
+    "front": "+x",
+    "up": "+z"
+  },
+  "parts": [
+    {
+      "name": "pedal",
+      "joint": "button",
+      "anchor": "bottom_front_edge",
+      "axis": "up_down",
+      "range": [
+        -0.02,
+        0
+      ],
+      "spring": {
+        "stiffness": 40,
+        "damping": 0.6
+      },
+      "on_press": {
+        "state": "lid_open"
+      },
+      "affordances": [
+        {
+          "action": "press",
+          "site": "pedal_press"
+        }
+      ]
+    },
+    {
+      "name": "lid",
+      "joint": "hinge",
+      "anchor": "top_front_edge",
+      "axis": "left_right",
+      "range": [
+        0,
+        75
+      ],
+      "affordances": [
+        {
+          "action": "push",
+          "site": "lid_push"
+        },
+        {
+          "action": "grasp",
+          "site": "lid_grasp"
+        }
+      ]
+    }
+  ]
+}

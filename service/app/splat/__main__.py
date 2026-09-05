@@ -6,7 +6,7 @@ Prints Gaussian count, SH degree, bounding box and extent. The number to look at
 longest axis of the extent: if it is not a plausible number of metres for the space that was
 scanned, the capture is not metric and everything downstream that assumes metres is wrong.
 
-This is also the reference the browser's own parser is checked against — the counts must
+This is also the reference the browser's own parser is checked against -- the counts must
 agree exactly.
 """
 

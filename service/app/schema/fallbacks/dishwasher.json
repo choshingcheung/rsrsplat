@@ -1,0 +1,78 @@
+{
+  "object": "dishwasher",
+  "mobility": "fixed",
+  "shape": "shell",
+  "frame": {
+    "size": [
+      0.24,
+      0.23,
+      0.3
+    ],
+    "front": "+x",
+    "up": "+z"
+  },
+  "parts": [
+    {
+      "name": "door",
+      "joint": "hinge",
+      "anchor": "bottom_front_edge",
+      "axis": "left_right",
+      "range": [
+        0,
+        90
+      ],
+      "affordances": [
+        {
+          "action": "grasp",
+          "site": "handle_grasp"
+        },
+        {
+          "action": "push",
+          "site": "door_push"
+        }
+      ]
+    },
+    {
+      "name": "rack",
+      "joint": "slide",
+      "anchor": "interior_lower",
+      "axis": "front_back",
+      "range": [
+        0,
+        0.18
+      ],
+      "requires": [
+        "door >= 80"
+      ],
+      "affordances": [
+        {
+          "action": "grasp",
+          "site": "rack_grasp"
+        }
+      ]
+    },
+    {
+      "name": "start_button",
+      "joint": "button",
+      "anchor": "front_panel_upper_right",
+      "axis": "front_back",
+      "range": [
+        -0.006,
+        0
+      ],
+      "spring": {
+        "stiffness": 60,
+        "damping": 0.4
+      },
+      "on_press": {
+        "state": "running"
+      },
+      "affordances": [
+        {
+          "action": "press",
+          "site": "button_press"
+        }
+      ]
+    }
+  ]
+}

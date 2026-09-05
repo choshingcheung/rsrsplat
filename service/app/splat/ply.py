@@ -120,7 +120,7 @@ def header_lines(path: str | Path) -> list[str]:
         while True:
             raw = fh.readline()
             if not raw:
-                raise ValueError(f"{path}: reached end of file with no 'end_header' — not a PLY?")
+                raise ValueError(f"{path}: reached end of file with no 'end_header' - not a PLY?")
             line = raw.decode("ascii", errors="replace").strip()
             lines.append(line)
             if line == "end_header":

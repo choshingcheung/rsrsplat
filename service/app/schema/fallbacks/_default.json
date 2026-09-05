@@ -1,0 +1,15 @@
+{
+  "object": "object",
+  "mobility": "free",
+  "shape": "box",
+  "frame": {
+    "size": [
+      0.3,
+      0.3,
+      0.3
+    ],
+    "front": "+x",
+    "up": "+z"
+  },
+  "parts": []
+}

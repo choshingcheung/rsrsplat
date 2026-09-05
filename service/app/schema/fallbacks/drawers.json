@@ -1,0 +1,56 @@
+{
+  "object": "chest_of_drawers",
+  "mobility": "fixed",
+  "shape": "shell",
+  "frame": {
+    "size": [
+      0.22,
+      0.26,
+      0.32
+    ],
+    "front": "+x",
+    "up": "+z"
+  },
+  "parts": [
+    {
+      "name": "upper_drawer",
+      "joint": "slide",
+      "anchor": "interior_upper",
+      "axis": "front_back",
+      "range": [
+        0,
+        0.16
+      ],
+      "affordances": [
+        {
+          "action": "grasp",
+          "site": "upper_drawer_grasp"
+        },
+        {
+          "action": "push",
+          "site": "upper_drawer_push"
+        }
+      ]
+    },
+    {
+      "name": "lower_drawer",
+      "joint": "slide",
+      "anchor": "interior_lower",
+      "axis": "front_back",
+      "range": [
+        0,
+        0.16
+      ],
+      "affordances": [
+        {
+          "action": "grasp",
+          "site": "lower_drawer_grasp"
+        },
+        {
+          "action": "push",
+          "site": "lower_drawer_push"
+        }
+      ]
+    }
+  ]
+}

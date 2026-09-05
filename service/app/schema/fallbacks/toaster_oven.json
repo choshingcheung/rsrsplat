@@ -1,0 +1,78 @@
+{
+  "object": "toaster_oven",
+  "mobility": "fixed",
+  "shape": "shell",
+  "frame": {
+    "size": [
+      0.26,
+      0.24,
+      0.2
+    ],
+    "front": "+x",
+    "up": "+z"
+  },
+  "parts": [
+    {
+      "name": "door",
+      "joint": "hinge",
+      "anchor": "bottom_front_edge",
+      "axis": "left_right",
+      "range": [
+        0,
+        85
+      ],
+      "affordances": [
+        {
+          "action": "grasp",
+          "site": "handle_grasp"
+        },
+        {
+          "action": "push",
+          "site": "door_push"
+        }
+      ]
+    },
+    {
+      "name": "tray",
+      "joint": "slide",
+      "anchor": "interior_lower",
+      "axis": "front_back",
+      "range": [
+        0,
+        0.14
+      ],
+      "requires": [
+        "door >= 75"
+      ],
+      "affordances": [
+        {
+          "action": "grasp",
+          "site": "tray_grasp"
+        }
+      ]
+    },
+    {
+      "name": "timer_knob",
+      "joint": "button",
+      "anchor": "front_panel_center",
+      "axis": "front_back",
+      "range": [
+        -0.004,
+        0
+      ],
+      "spring": {
+        "stiffness": 70,
+        "damping": 0.4
+      },
+      "on_press": {
+        "state": "toasting"
+      },
+      "affordances": [
+        {
+          "action": "press",
+          "site": "timer_press"
+        }
+      ]
+    }
+  ]
+}

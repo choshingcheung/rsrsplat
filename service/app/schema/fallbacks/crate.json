@@ -1,0 +1,15 @@
+{
+  "object": "crate",
+  "mobility": "free",
+  "shape": "box",
+  "frame": {
+    "size": [
+      0.5,
+      0.5,
+      0.4
+    ],
+    "front": "+x",
+    "up": "+z"
+  },
+  "parts": []
+}

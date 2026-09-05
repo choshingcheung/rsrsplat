@@ -34,9 +34,14 @@ Python, headless, provable with `pytest`. No browser involved at any point.
       *Caveat:* the extent is NOT a plausible number of metres — the capture is not metric
       (see `NOTES.md`). That is a fact about the capture, not the parser, and it is what
       `WorldFrame.sceneScale` exists for. This half of the criterion is met at A3/S4.
-- [ ] **S2 · Schema and validator.** Port the articulation schema and its checker.
-      *Proof:* a hand-written dishwasher schema validates; at least five malformed schemas are
-      rejected with errors readable enough to feed back to a model.
+- [x] **S2 · Schema and validator.** Port the articulation schema and its checker.
+      *Proof:* the dishwasher validates; seven malformed schemas rejected with model-readable
+      errors; all seven stored fallbacks validate. 112 tests green.
+      *Added for rsrsplat:* `mobility` (free/fixed), `shape` (box/shell), and objects with no
+      parts — a crate is the commonest case and the prototype could not express it.
+      *Deferred:* `precond.py` (symbolic plan checking). Nothing consumes `requires` at
+      runtime until there is a planner, and rsrsplat has none. The validation of `requires`
+      clauses — including the sprung-button check — is ported and live.
 - [ ] **S3 · MJCF generation.** Port schema → XML.
       *Proof:* loads in MuJoCo without error. A test drives every joint through its full range
       and asserts no part passes through the shell. Explicit tests for the four silent killers:
