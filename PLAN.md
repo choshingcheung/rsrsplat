@@ -42,11 +42,18 @@ Python, headless, provable with `pytest`. No browser involved at any point.
       *Deferred:* `precond.py` (symbolic plan checking). Nothing consumes `requires` at
       runtime until there is a planner, and rsrsplat has none. The validation of `requires`
       clauses — including the sprung-button check — is ported and live.
-- [ ] **S3 · MJCF generation.** Port schema → XML.
-      *Proof:* loads in MuJoCo without error. A test drives every joint through its full range
-      and asserts no part passes through the shell. Explicit tests for the four silent killers:
-      `autolimits="true"`, box `size` as half-extents, friction on **both** geoms of a contact
-      pair, body origin on the joint anchor.
+- [x] **S3 · MJCF generation.** Port schema → XML.
+      *Proof:* all seven stored schemas load in MuJoCo. Every hinge is swept through its full
+      range asserting the panel never enters its own shell; every slide travels its exact range
+      along one axis; every button springs back. All four silent killers have explicit tests,
+      and `autolimits` is checked by asserting the solver *enforces* the limit rather than that
+      the attribute is present. 165 tests green, ruff clean.
+      *Three real bugs the sweep found:* a top-hinged lid swung backwards into its own bin
+      (the same axis sign opens a bottom-hinged door and closes a top-hinged lid — the
+      generator now derives the sign that opens, so `range: [0, N]` always means "opens");
+      a door panel centred on the front face stood permanently 1.75 mm inside the side walls;
+      and `floor=False` moved the object to the origin while leaving the plane there, so a
+      "free-floating" body started half-buried and was ejected upward.
 - [ ] **S4 · Ground and scene assembly.** Floor, up vector, scale.
       *Proof:* a body dropped above the floor settles rather than tunnelling, within a bounded
       number of steps.

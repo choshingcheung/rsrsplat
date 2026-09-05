@@ -62,9 +62,19 @@ VALID_OPS = {">=", "<=", ">", "<", "=="}
 MAX_HINGE_DEGREES = 180.0
 MAX_SLIDE_METRES = 1.0
 MAX_OBJECT_METRES = 3.0
+MAX_OBJECT_KG = 500.0
+MAX_FRICTION = 2.0
 
 DEFAULT_MOBILITY = "fixed"
 DEFAULT_SHAPE = "box"
+
+#: kg/m^3, used when a schema states no mass. Roughly chipboard: heavy enough to sit still,
+#: light enough to shove. A model that says "heavy" should override it.
+DEFAULT_DENSITY = 400.0
+
+#: Sliding friction. MuJoCo takes the elementwise MAXIMUM across a contact pair, so the
+#: generator writes this onto the floor as well as the object. Setting one does nothing.
+DEFAULT_FRICTION = 0.6
 
 
 def _fmt(allowed: set[str]) -> str:
@@ -94,6 +104,7 @@ def validate(schema: Any) -> list[str]:
         errs.append(f"bad shape '{shape}'. allowed: {_fmt(VALID_SHAPES)}")
 
     errs += _validate_frame(schema.get("frame"))
+    errs += _validate_mass_and_friction(schema)
 
     parts = schema.get("parts", [])
     if not isinstance(parts, list):
@@ -151,6 +162,39 @@ def _validate_frame(frame: Any) -> list[str]:
     return errs
 
 
+def _validate_mass_and_friction(schema: dict) -> list[str]:
+    """Both are optional; both feed the wire contract, so both are bounded.
+
+    ``mass`` is what "heavy" in a prompt turns into, and it is the value most likely to come
+    back as a plausible-looking hallucination -- a 4000 kg crate settles through the floor.
+    """
+    errs: list[str] = []
+
+    mass = schema.get("mass")
+    if mass is not None:
+        if not isinstance(mass, int | float) or isinstance(mass, bool):
+            errs.append(f"'mass' must be a number of kilograms, got {mass!r}")
+        elif mass <= 0:
+            errs.append(f"'mass' must be positive, got {mass!r} kg")
+        elif mass > MAX_OBJECT_KG:
+            errs.append(
+                f"'mass' of {mass:g} kg exceeds {MAX_OBJECT_KG:g} kg - implausible for an "
+                f"object someone selected in a room"
+            )
+
+    friction = schema.get("friction")
+    if friction is not None:
+        if not isinstance(friction, int | float) or isinstance(friction, bool):
+            errs.append(f"'friction' must be a number, got {friction!r}")
+        elif not 0.0 <= friction <= MAX_FRICTION:
+            errs.append(
+                f"'friction' must be between 0 and {MAX_FRICTION:g}, got {friction!r} "
+                f"(it is a coefficient, not a force)"
+            )
+
+    return errs
+
+
 def _is_vec3(value: Any) -> bool:
     return (
         isinstance(value, list)
@@ -194,7 +238,8 @@ def _validate_part(part: Any, index: int, names: set[str]) -> list[str]:
 
 def _validate_range(part: dict, name: str, joint: Any) -> list[str]:
     rng = part.get("range")
-    if not (isinstance(rng, list) and len(rng) == 2 and all(isinstance(v, int | float) for v in rng)):
+    ok = isinstance(rng, list) and len(rng) == 2
+    if not (ok and all(isinstance(v, int | float) for v in rng)):
         return [f"{name}: 'range' must be two numbers [low, high], got {rng!r}"]
 
     lo, hi = rng
@@ -335,6 +380,23 @@ def shape(schema: dict) -> str:
 
 def parts(schema: dict) -> list[dict]:
     return schema.get("parts", []) or []
+
+
+def friction(schema: dict) -> float:
+    return float(schema.get("friction", DEFAULT_FRICTION))
+
+
+def mass_kg(schema: dict) -> float:
+    """The object's mass, stated or derived from its measured volume.
+
+    Falling back to density rather than to a constant means a selected wardrobe and a
+    selected mug do not weigh the same when the model declines to say.
+    """
+    stated = schema.get("mass")
+    if stated is not None:
+        return float(stated)
+    hx, hy, hz = half_extents(schema)
+    return DEFAULT_DENSITY * (2 * hx) * (2 * hy) * (2 * hz)
 
 
 def with_measured_frame(

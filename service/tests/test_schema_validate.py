@@ -57,7 +57,8 @@ def test_an_object_with_no_parts_is_valid():
 
 
 def test_parts_may_be_absent_entirely():
-    assert validate({"object": "rock", "mobility": "free", "frame": {"size": [0.2, 0.2, 0.2]}}) == []
+    bare = {"object": "rock", "mobility": "free", "frame": {"size": [0.2, 0.2, 0.2]}}
+    assert validate(bare) == []
 
 
 def test_mobility_defaults_to_fixed_and_shape_to_box():

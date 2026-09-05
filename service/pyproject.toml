@@ -43,3 +43,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# protocol.py uses typing.Union deliberately: the seam test introspects the discriminated
+# union with typing.get_origin, which reports types.UnionType for `X | Y` and would need a
+# second code path. The contract file is the wrong place to be clever.
+"app/protocol.py" = ["UP007"]
