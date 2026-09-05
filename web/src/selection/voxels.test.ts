@@ -1,10 +1,13 @@
 /**
  * Segmentation and collision shape, on objects whose answer is known.
  *
- * The two tests that carry the weight are `takes the whole object even when the rectangle
- * clipped it` and `does not escape through the floor`. Between them they are the difference
- * between "it removed a rectangular slab and left the handle behind" and "it removed the
- * object", which was the complaint this module exists to answer.
+ * These fill boxes on a regular lattice, so every cell is uniformly dense and connectivity is
+ * guaranteed -- a far kinder world than a trained splat scene. `voxels.capture.test.ts` runs
+ * the same code on the real capture and is the one that decides whether the method works.
+ *
+ * The two tests that carry the weight here are `REJECTS a small selection` and `does not
+ * escape through the floor`. Between them they pin the boundary: the grow may recover parts
+ * the rectangle missed, and must refuse rather than return the room.
  */
 
 import * as THREE from "three";
@@ -82,25 +85,50 @@ describe("voxelising", () => {
 });
 
 describe("growing the object out of a partial selection", () => {
-  it("takes the whole object even when the rectangle clipped it", () => {
-    // A 40 cm cube standing on a floor. The user's rectangle catches only its left half.
+  it("recovers the rest of an object the rectangle mostly caught", () => {
+    // A 40 cm cube on a floor, with the rectangle catching most but not all of it.
     const points: number[] = [];
     fill(points, [0, 0, 0.2], [0.4, 0.4, 0.4]);
     const objectCount = points.length / 3;
-    fill(points, [0, 0, -0.02], [3, 3, 0.04], 0.03); // the floor it stands on
+    fill(points, [0, 0, -0.02], [3, 3, 0.04], 0.03);
 
     const { centers, count } = cloud(points);
     const frame = frameAt([0, 0, 0.2], [0.2, 0.2, 0.2]);
-    const clipped = inside(centers, count, [-0.2, -0.2, 0.05], [0.0, 0.2, 0.35]);
+    const clipped = inside(centers, count, [-0.2, -0.2, 0.05], [0.12, 0.2, 0.35]);
 
-    expect(clipped.length).toBeLessThan(objectCount * 0.6); // genuinely a partial selection
-
-    const grid = voxelise(centers, count, frame);
-    const grown = grow(grid, centers, clipped, frame, { surfaces: [0] });
+    expect(clipped.length).toBeLessThan(objectCount * 0.9); // genuinely partial
+    const grown = grow(voxelise(centers, count, frame), centers, clipped, frame, {
+      surfaces: [0],
+    });
 
     expect(grown.escaped).toBe(false);
-    // Recovers most of the cube from a selection that caught barely half of it.
-    expect(grown.indices.length).toBeGreaterThan(objectCount * 0.85);
+    expect(grown.indices.length).toBeGreaterThan(clipped.length);
+  });
+
+  it("REJECTS a small selection, and this is the method's limit rather than a bug", () => {
+    // The measurement that decides this whole approach. A rectangle catching a third of an
+    // object legitimately grows 3x. A flood that walked out of the object and into the room
+    // measured 5x to 8x on the real capture. Those ranges overlap, so no ratio threshold
+    // separates them -- and without a ratio threshold nothing stops the runaway at all,
+    // because a room scan is ONE CONNECTED MASS and geometry alone cannot say where an
+    // object ends.
+    //
+    // So the guard is deliberately conservative and this case is refused. Separating an
+    // object from the surface it rests on needs semantics, which means a model. See the
+    // module docstring.
+    const points: number[] = [];
+    fill(points, [0, 0, 0.2], [0.4, 0.4, 0.4]);
+    fill(points, [0, 0, -0.02], [3, 3, 0.04], 0.03);
+
+    const { centers, count } = cloud(points);
+    const frame = frameAt([0, 0, 0.2], [0.2, 0.2, 0.2]);
+    const third = inside(centers, count, [-0.2, -0.2, 0.05], [-0.05, 0.2, 0.35]);
+
+    const grown = grow(voxelise(centers, count, frame), centers, third, frame, {
+      surfaces: [0],
+    });
+    expect(grown.escaped).toBe(true);
+    expect(grown.indices.length).toBe(0); // the caller falls back to the rectangle
   });
 
   it("does not escape through the floor", () => {

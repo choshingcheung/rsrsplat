@@ -213,5 +213,35 @@ time runs out:
 
 ## Open
 
+### Segmentation needs a model, and does not have one
+
+The largest open item, and the cause of "the removal is still not even close to good".
+
+`web/src/selection/voxels.ts` grows the object out of the drag rectangle by connected-component
+region growing on an occupancy grid. That is pure geometry. Measured on the real capture by
+`voxels.capture.test.ts`, a 13,174-splat selection grew to **105,506 splats — 801%**: most of
+the room.
+
+It is not a tuning problem. A room scan is one connected mass, so "connected to" means "in the
+same room as", and no density threshold or growth ratio separates a legitimate 3x recovery from
+a 5x runaway — the ranges overlap. The `MAX_GROWTH` guard now makes the bad case fail visibly
+and fall back to the rectangle, so removal is no longer made *worse*; it is not made right.
+
+The fix is a segmentation model with an image prior, run over rendered views and lifted back to
+splats — the prototype anticipated exactly this in `crop()`: *"the Tier-1 stand-in for a SAM 3
+part mask"*. Sketch:
+
+1. Render 8–12 views around the selection centroid from the existing Spark renderer.
+2. Prompt SAM 2/3 with the drag rectangle projected into each view.
+3. Vote per splat across views: a splat is owned if it projects inside the mask in a clear
+   majority of the views it is visible in.
+4. Keep the voxel grid — it is still what produces collision boxes, and that half works.
+
+Only step 3 is new code; step 4 is already written and tested.
+
+### Smaller
+
 - A 30k-iteration capture, ideally a scene with appliances. See `DECISIONS.md`.
 - `ANTHROPIC_API_KEY`, needed only at S7. The fallback is built before it.
+- Dragging feels laggy: 33 ms interpolation delay stacked on the round trip. Needs client-side
+  prediction for the grabbed body only.

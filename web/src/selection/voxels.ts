@@ -1,20 +1,45 @@
 /**
  * A voxel grid over a selection, and the two things it makes possible.
  *
- * **Segmentation.** A drag rectangle plus a depth filter selects a rectangular chunk of the
- * room: some of the object, the floor under it, a slice of the wall behind — and it *misses*
- * whatever fell outside the box, the clipped corner, the handle sticking out. Remove exactly
- * that set and the result reads as "it didn't remove the object", because it didn't.
+ * ## Read this before trusting the segmentation
  *
- * So the rectangle is treated as a HINT rather than an answer. Occupied cells are grown
- * outward from the densest part of the selection, through connected space, **past the box's
- * own bounds** — and cut off at the surface the object is standing on, or the flood escapes
- * through the floor and swallows the room.
+ * This module contains NO segmentation model. The grow below is connected-component region
+ * growing on an occupancy grid: pure geometry, no semantics, nothing that knows what an
+ * object IS. `voxels.capture.test.ts` measured what that does on the real scan:
  *
- * **Collision geometry.** The same occupied cells, greedily merged into boxes, give a body
- * the object's actual shape instead of a cuboid around it. A chair gets legs; a bottle gets
- * a neck; things tip onto a corner instead of landing flat. Boxes are already convex, so
- * unlike a generated mesh this needs no convex decomposition and no external service.
+ *     a 0.5 m box on the densest object caught  13,174 splats
+ *       grown at >= 1 splat / cell:            105,506 splats   (801%)
+ *                >= 2:                          94,447          (717%)
+ *                >= 4:                          91,944          (698%)
+ *                >= 8:                          68,901          (523%)
+ *
+ * That is not a tuning failure. A room scan is ONE CONNECTED MASS -- an object touches the
+ * surface it stands on, which touches the wall, which touches everything -- so under a purely
+ * geometric rule "connected to" means "in the same room as". The surface cut below buys back
+ * the floor and nothing else; walls, worktops and neighbouring objects all still conduct.
+ *
+ * Nor can a growth ratio separate the two cases: a rectangle that legitimately caught a third
+ * of an object grows 3x, and the runaway above grew 5x to 8x. Those ranges overlap. MAX_GROWTH
+ * is therefore a guard rail that makes a bad segmentation FAIL VISIBLY (`escaped`, caller falls
+ * back to the rectangle) rather than a threshold that makes it work.
+ *
+ * Separating an object from the surface it rests on needs to know what an object is, which
+ * means a model. The prototype said as much in `crop()`'s docstring -- "the Tier-1 stand-in
+ * for a SAM 3 part mask". That is still the open item; see PLAN.md.
+ *
+ * ## What it is for meanwhile
+ *
+ * **Segmentation, when it holds.** A drag rectangle plus a depth filter selects a rectangular
+ * chunk of the room: some of the object, the floor under it, a slice of the wall behind -- and
+ * it *misses* whatever fell outside the box, the clipped corner, the handle sticking out. When
+ * the object is well separated the grow recovers those and drops the disconnected wall
+ * fragment. When it is not, it says so.
+ *
+ * **Collision geometry.** The load-bearing half, and independent of the above. The occupied
+ * cells of whatever set is finally owned, greedily merged into boxes, give a body the object's
+ * actual shape instead of a cuboid around it. A chair gets legs; a bottle gets a neck; things
+ * tip onto a corner instead of landing flat. Boxes are already convex, so unlike a generated
+ * mesh this needs no convex decomposition and no external service.
  */
 
 import * as THREE from "three";
@@ -32,6 +57,16 @@ const MIN_SPLATS_PER_CELL = 2;
 
 /** Cells within this of a detected surface are cut, so the grow cannot escape into the floor. */
 const SURFACE_CUT = 0.045;
+
+/**
+ * How much larger than the selection a grown component may be before it is rejected.
+ *
+ * A selection that caught half an object legitimately doubles, so the threshold has to sit
+ * above 2. A runaway measured 5x to 8x on the real capture. The gap between those is narrow,
+ * and that narrowness is the point: this is a GUARD RAIL on a method that does not actually
+ * work on a room scan, not a fix for it. See the module docstring.
+ */
+const MAX_GROWTH = 2.5;
 
 /** A box in the selection's own frame: axes are front, left, up. */
 export interface LocalBox {
@@ -109,6 +144,14 @@ export interface GrowOptions {
   minSplatsPerCell?: number;
   /** Refuse a component larger than this many cells; a runaway flood is not an object. */
   maxCells?: number;
+  /**
+   * Refuse a component more than this many times the size of the seed set.
+   *
+   * The budget that actually matters. Measured against the grid it is useless: on the real
+   * capture a flood reached 5,195 of 79,464 cells -- nowhere near a grid-relative cap, and
+   * eight times the splats the user selected.
+   */
+  maxGrowth?: number;
 }
 
 /**
@@ -132,6 +175,7 @@ export function grow(
 ): { cells: Set<number>; indices: Uint32Array; escaped: boolean } {
   const minSplats = options.minSplatsPerCell ?? MIN_SPLATS_PER_CELL;
   const maxCells = options.maxCells ?? Math.floor(grid.counts.length * 0.5);
+  const maxGrowth = options.maxGrowth ?? MAX_GROWTH;
 
   const solid = new Uint8Array(grid.counts.length);
   for (let i = 0; i < grid.counts.length; i++) {
@@ -180,6 +224,15 @@ export function grow(
       if (bucket) indices.push(...bucket);
     }
   }
+
+  // The check that a grid-relative budget missed entirely. A room scan is ONE CONNECTED
+  // MASS -- an object touches the surface it stands on, which touches the wall, which
+  // touches everything -- so a flood that is not stopped by geometry alone will happily
+  // return most of the room while looking, cell-count-wise, perfectly reasonable.
+  if (!escaped && seeds.length > 0 && indices.length > seeds.length * maxGrowth) {
+    return { cells: new Set(), indices: new Uint32Array(0), escaped: true };
+  }
+
   return { cells, indices: Uint32Array.from(indices), escaped };
 }
 
