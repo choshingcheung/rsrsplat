@@ -1,0 +1,39 @@
+[project]
+name = "rsrsplat-capture"
+version = "0.1.0"
+description = "Turn an image or a prompt into a Gaussian splat capture, via the World Labs Marble API."
+requires-python = ">=3.12"
+
+# Two, deliberately. A batch job that waits five minutes for someone else's compute does not
+# need an async stack, and every dependency here is one this tool could be lifted away from.
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+marble = "marble.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["marble"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

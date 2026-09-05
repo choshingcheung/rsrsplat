@@ -1,0 +1,19 @@
+# This track's own ignore rules, so the repo-root .gitignore never has to learn about them.
+# Git reads nested ignore files; see capture/README.md for why that matters here.
+
+# The run ledger is per-machine: world ids and local paths, useful to nobody else.
+runs/
+
+# Downloaded captures. Large binaries stay out of git and are referenced by path.
+out/
+*.ply
+*.spz
+*.marble.json
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
