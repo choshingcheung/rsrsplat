@@ -223,22 +223,6 @@ export function applyPose(mesh: THREE.Object3D, pose: PoseUpdate): void {
   toThree(pose.orientation, mesh.quaternion);
 }
 
-/**
- * Interpolate toward a pose, so 30 Hz of physics reads as smooth motion at 60 fps.
- *
- * `alpha` is the fraction of the remaining gap to close this frame. Applied per frame it
- * gives an exponential approach: fast enough to keep up with a falling body, smooth enough
- * that the 30 Hz cadence is invisible. Snapping instead produces a visible judder that reads
- * as a low frame rate even at 60 fps.
- */
-export function easePose(mesh: THREE.Object3D, target: PoseUpdate, alpha: number): void {
-  mesh.position.lerp(TARGET_POSITION.set(...target.position), alpha);
-  mesh.quaternion.slerp(toThree(target.orientation, TARGET_ROTATION), alpha);
-}
-
-const TARGET_POSITION = new THREE.Vector3();
-const TARGET_ROTATION = new THREE.Quaternion();
-
 /** The frame's rotation as a Three.js quaternion: columns front, left, up. */
 export function orientationOf(frame: MeasuredFrame): THREE.Quaternion {
   const m = new THREE.Matrix4().makeBasis(frame.front, frame.left, frame.up);

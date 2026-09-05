@@ -15,7 +15,7 @@
 import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
-import { assignParts, easePose, applyPose, inverseOf, toBodyLocal } from "./binding";
+import { assignParts, applyPose, inverseOf, toBodyLocal } from "./binding";
 import type { SplatCloud } from "./splats";
 import type { MeasuredFrame } from "../selection/frame";
 import { toThree, toWire } from "../net/quaternion";
@@ -129,21 +129,12 @@ describe("applying a pose to a mesh", () => {
     expect(object.quaternion.z).toBeCloseTo(YAW30[3], 12);
   });
 
-  it("eases toward a target rather than snapping to it", () => {
-    // 30 Hz of physics snapped straight onto 60 fps reads as judder, which looks like a low
-    // frame rate rather than like a coarse update.
+  it("sets a pose exactly, leaving smoothing to the interpolator", () => {
+    // applyPose is deliberately exact. Anything that wants motion between updates asks
+    // PoseStream for a sample -- see net/interpolate.ts for why smoothing here was wrong.
     const object = new THREE.Object3D();
-    applyPose(object, pose("x", [0, 0, 0]));
-    easePose(object, pose("x", [0, 0, 10]), 0.5);
-
-    expect(object.position.z).toBeCloseTo(5, 9);
-  });
-
-  it("converges on the target when eased repeatedly", () => {
-    const object = new THREE.Object3D();
-    applyPose(object, pose("x", [0, 0, 0]));
-    for (let i = 0; i < 40; i++) easePose(object, pose("x", [0, 0, 10]), 0.35);
-    expect(object.position.z).toBeCloseTo(10, 6);
+    applyPose(object, pose("x", [0, 0, 10]));
+    expect(object.position.z).toBe(10);
   });
 });
 

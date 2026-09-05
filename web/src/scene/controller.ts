@@ -23,11 +23,12 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 import { connect, type Service } from "../net/client";
+import { PoseStream } from "../net/interpolate";
 import { measureFrame, toSelection, type MeasuredFrame } from "../selection/frame";
 import { pick, rectFromPointers, type ScreenRect } from "../selection/pick";
 import { useScene } from "../store/scene";
-import type { ClientMessage, PhysicsObject, PoseUpdate, ServerMessage } from "../types/protocol";
-import { bind, easePose, orientationOf, unbind, type BoundObject } from "./binding";
+import type { ClientMessage, PhysicsObject, ServerMessage } from "../types/protocol";
+import { bind, orientationOf, unbind, type BoundObject } from "./binding";
 import { alignScene, roomObstacles } from "./ground";
 import { applyAlignment, readPly, type SplatCloud } from "./splats";
 
@@ -36,9 +37,6 @@ const PERF_INTERVAL_MS = 500;
 
 /** Sampling during a drag. The commit always runs at stride 1. */
 const DRAG_STRIDE = 12;
-
-/** How much of the gap to a new pose to close each frame. See `easePose`. */
-const POSE_EASE = 0.35;
 
 /** How far the unselected scene is dimmed while a selection is live. */
 const DIM = 0.28;
@@ -81,7 +79,8 @@ export class SceneController {
 
   private bound = new Map<string, BoundObject>();
   private meshFor = new Map<string, THREE.Object3D>();
-  private targets = new Map<string, PoseUpdate>();
+  /** Buffered poses, interpolated by elapsed time rather than smoothed toward. */
+  private stream = new PoseStream();
 
   /** Which bodies can be picked up. A fitted appliance is not one of them. */
   private draggable = new Set<string>();
@@ -520,7 +519,7 @@ export class SceneController {
           });
         }
       case "pose.batch":
-        for (const pose of message.poses) this.targets.set(pose.bodyName, pose);
+        this.stream.push(message);
         return;
     }
   }
@@ -558,7 +557,7 @@ export class SceneController {
     if (!bound) return;
     for (const part of bound.parts) {
       this.meshFor.delete(part.bodyName);
-      this.targets.delete(part.bodyName);
+      this.stream.forget(part.bodyName);
       this.draggable.delete(part.bodyName);
     }
     unbind(bound, this.scene);
@@ -609,7 +608,7 @@ export class SceneController {
 
   private clearBindings(): void {
     for (const id of [...this.bound.keys()]) this.unbindOne(id);
-    this.targets.clear();
+    this.stream.clear();
     this.meshFor.clear();
   }
 
@@ -625,11 +624,15 @@ export class SceneController {
     const dt = now - this.last;
     this.last = now;
 
-    // Ease toward the latest pose rather than snapping to it. Thirty hertz of physics
-    // snapped onto sixty frames reads as judder, which looks like a low frame rate.
-    for (const [bodyName, pose] of this.targets) {
-      const mesh = this.meshFor.get(bodyName);
-      if (mesh) easePose(mesh, pose, POSE_EASE);
+    // Interpolate between buffered poses by ELAPSED TIME, rather than easing toward the
+    // newest one. Easing is a low-pass filter: it damps acceleration and smears impacts, and
+    // it is what made a falling crate look like it was descending through syrup.
+    this.stream.advance(dt / 1000);
+    for (const [bodyName, mesh] of this.meshFor) {
+      if (this.stream.sample(bodyName, SAMPLED_POSITION, SAMPLED_ROTATION)) {
+        mesh.position.copy(SAMPLED_POSITION);
+        mesh.quaternion.copy(SAMPLED_ROTATION);
+      }
     }
 
     this.controls.update();
@@ -647,3 +650,6 @@ export class SceneController {
     }
   };
 }
+
+const SAMPLED_POSITION = new THREE.Vector3();
+const SAMPLED_ROTATION = new THREE.Quaternion();
