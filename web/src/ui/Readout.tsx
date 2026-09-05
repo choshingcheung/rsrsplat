@@ -39,7 +39,7 @@ function Row({
 }
 
 export function Readout() {
-  const { phase, splatCount, fps, frameMs, connected, progress } = useScene();
+  const { phase, splatCount, fps, frameMs, transport, progress, objects } = useScene();
 
   if (phase === "empty") return null;
 
@@ -56,11 +56,14 @@ export function Readout() {
         state={fps && fps < 24 ? "warn" : undefined}
       />
       <Row label="frame" value={frameMs ? `${frameMs.toFixed(1)}ms` : "--"} />
+      {/* Which service is answering. Never a silent substitution: if the Python one is
+          unreachable the app keeps working on the in-browser stand-in, and says so. */}
       <Row
         label="physics"
-        value={connected ? "linked" : "offline"}
-        state={connected ? "live" : undefined}
+        value={transport === "service" ? "linked" : transport === "local" ? "local" : "--"}
+        state={transport === "service" ? "live" : undefined}
       />
+      {objects.length ? <Row label="bodies" value={`${objects.length}`} state="live" /> : null}
     </div>
   );
 }

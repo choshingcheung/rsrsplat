@@ -28,7 +28,8 @@ export function Empty() {
             Drop a <span className="num">.ply</span> scan anywhere.
           </p>
           <p className="mt-2" style={{ color: "var(--text-mid)" }}>
-            Then drag a box over something in it and say what it is.
+            Then <span style={{ color: "var(--text-hi)" }}>shift-drag</span> a box over
+            something in it and say what it is.
           </p>
 
           <div className="mt-6 flex flex-col gap-1.5">
@@ -58,6 +59,8 @@ export function Empty() {
       <span className="num" style={{ fontSize: "var(--size-read)", color: "var(--text-mid)" }}>
         {fileName}
       </span>
+      {/* The gesture, still visible once there is something to use it on. */}
+      <span className="tick">shift-drag to select</span>
       {error ? (
         <span className="num" style={{ fontSize: "var(--size-read)", color: "var(--warn)" }}>
           {error}

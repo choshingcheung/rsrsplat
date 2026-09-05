@@ -153,13 +153,15 @@ Browser, design-led, provable with no Python process running.
       crate stayed where it had fallen; and the door's spring was soft enough to still be
       visibly creeping after three seconds. It is now an exponential approach, which cannot
       oscillate and is what a real damped appliance door does.
-- [~] **A5 · Selection.** Box drag, screen projection, depth filtering, live count, PCA with the
+- [x] **A5 · Selection.** Box drag, screen projection, depth filtering, live count, PCA with the
       determinant flip, highlight and dim.
       *Maths done and tested* (21 tests): a box of known size comes back with the right
       half-extents; the frame is right-handed from every viewing angle; a rectangle over an
       object takes the object and leaves the wall behind it; near-invisible splats are ignored;
       a single floater in front does not drag the near plane forward. 54 web tests green.
-      *Still to wire:* the drag interaction and the highlight/dim, which need the viewport.
+      *Wired:* shift-drag to select, with a live count during the drag and the accent
+      highlight plus a dimmed scene on release, both as GPU box edits rather than per-splat
+      colour writes.
       *Two design errors the tests caught, both of which looked fine:*
       **(a)** `+front` taken from the camera's view *axis* is up to fifteen degrees off for an
       object at the edge of the frame — the face you are looking at is the one turned toward
@@ -171,13 +173,22 @@ Browser, design-led, provable with no Python process running.
       along the object's own PCA axes and letting the camera only choose *which of the four
       faces* is front. That is what the contract said all along: "the horizontal **principal
       axis** pointing back toward the camera".
-- [ ] **A6 · The interface proper.** Prompt bar on commit, pending state, object list with parts
+- [x] **A6 · The interface proper.** Prompt bar on commit, pending state, object list with parts
       and joint types, physics readout.
-- [ ] **A7 · Live binding.** Splats move out of the static scene into per-body groups; poses
+      *Built:* the prompt bar appears at the selection, focuses itself, and teaches by example
+      rather than by instruction. The object list shows each part's joint type and range with
+      its unit. Space and R drive the transport, suppressed while the prompt has focus. The
+      readout says which service is answering, so falling back to the in-browser one is never
+      a silent substitution.
+- [~] **A7 · Live binding.** Splats move out of the static scene into per-body groups; poses
       applied; quaternion conversion in exactly one place in the network layer; interpolation so
       30 Hz reads as 60 fps.
-      *Proof:* against the mock first. An object visibly settles, an articulated part swings, no
-      drift over sixty seconds.
+      *Built and unit-tested* (13 tests): each part's splats are baked into its body's frame
+      once, so the mesh transform IS the pose and Three.js composes it — no per-Gaussian work
+      per frame, no BVH refit. The round trip is asserted exact. Splats left behind are cut out
+      of the static scene with a GPU box edit, because re-packing 1.5M splats mid-interaction
+      would read as a hang.
+      *Needs a screen:* that an object visibly settles and a door visibly swings.
 
 ---
 
