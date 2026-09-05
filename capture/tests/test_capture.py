@@ -29,7 +29,7 @@ def api(overrides: dict | None = None):
     table = {
         ("GET", "/credits"): json_response("credits"),
         ("POST", "/media-assets:prepare_upload"): json_response("prepare_upload"),
-        ("PUT", "/wl-uploads/3b0f8e21"): httpx.Response(200),
+        ("PUT", "/3b0f8e21-77aa-4a6d-9c11-8e2b5d4f0a90/kitchen.jpg"): httpx.Response(200),
         ("POST", "/worlds:generate"): json_response("generate"),
         ("GET", f"/operations/{OP}"): [
             json_response("operation_running"),

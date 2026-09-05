@@ -380,11 +380,17 @@ class Marble:
         )
         asset = body.get("media_asset") or {}
         info = body.get("upload_info") or {}
-        if not asset.get("id") or not info.get("upload_url"):
-            raise MarbleError(f"prepare_upload returned no upload target: {body}")
+        # `media_asset_id` is what the live API returns; the reference documents `id`.
+        # The same divergence as `world_id`, and the same silent failure if only one is read.
+        asset_id = asset.get("media_asset_id") or asset.get("id")
+        if not asset_id or not info.get("upload_url"):
+            raise MarbleError(
+                f"prepare_upload returned no upload target. media_asset keys: "
+                f"{sorted(asset)}; upload_info keys: {sorted(info)}"
+            )
 
         return UploadTarget(
-            media_asset_id=str(asset["id"]),
+            media_asset_id=str(asset_id),
             upload_url=str(info["upload_url"]),
             method=str(info.get("upload_method") or "PUT").upper(),
             headers=dict(info.get("required_headers") or {}),

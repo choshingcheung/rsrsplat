@@ -35,6 +35,9 @@ from marble.client import (
 
 WORLD_ID = "9f1c2a44-0c3f-4a2e-9b77-2f0d6c5e1a01"
 
+#: The tail of the recorded signed upload URL, which the mock transport routes on.
+UPLOAD_PATH = "/3b0f8e21-77aa-4a6d-9c11-8e2b5d4f0a90/kitchen.jpg"
+
 
 # ---------------------------------------------------------------------------------------
 # Authentication and plumbing
@@ -58,12 +61,17 @@ def test_an_empty_body_is_not_a_parse_error(routed):
 
 
 def test_prepare_upload_reads_the_target_out(routed):
+    """The asset id comes back as ``media_asset_id``, not ``id``.
+
+    Recorded from the live API. Reading only ``id`` -- which is what the reference
+    documents -- aborted a real run at the upload, before anything was spent.
+    """
     client = routed({("POST", "/media-assets:prepare_upload"): json_response("prepare_upload")})
     target = client.prepare_upload("kitchen.jpg", "jpg")
 
     assert target.media_asset_id == "3b0f8e21-77aa-4a6d-9c11-8e2b5d4f0a90"
     assert target.method == "PUT"
-    assert target.headers == {"x-goog-content-length-range": "0,1048576000"}
+    assert target.headers == {"x-goog-content-length-range": "0,104857600"}
 
 
 def test_prepare_upload_sends_the_extension_without_a_dot(routed, recorder):
@@ -87,16 +95,45 @@ def test_a_signed_upload_never_carries_our_api_key(routed, recorder, tmp_path: P
     client = routed(
         {
             ("POST", "/media-assets:prepare_upload"): json_response("prepare_upload"),
-            ("PUT", "/wl-uploads/3b0f8e21"): httpx.Response(200),
+            ("PUT", UPLOAD_PATH): httpx.Response(200),
         }
     )
     client.upload_file(image)
 
-    put = recorder.to("/wl-uploads/3b0f8e21")[0]
+    put = recorder.to(UPLOAD_PATH)[0]
     assert "WLT-Api-Key" not in put.headers
-    assert put.headers["x-goog-content-length-range"] == "0,1048576000"
+    assert put.headers["x-goog-content-length-range"] == "0,104857600"
     assert put.headers["content-type"] == "image/jpeg"
     assert put.content == b"\xff\xd8\xff jpeg-ish bytes"
+
+
+def test_the_documented_id_spelling_is_accepted_too(routed):
+    documented = httpx.Response(
+        200,
+        json={
+            "media_asset": {"id": "asset-9"},
+            "upload_info": {"upload_url": "https://example.com/put", "upload_method": "PUT"},
+        },
+    )
+    client = routed({("POST", "/media-assets:prepare_upload"): documented})
+    assert client.prepare_upload("k.jpg", "jpg").media_asset_id == "asset-9"
+
+
+def test_a_prepare_upload_with_no_id_names_the_keys_not_the_signed_url(routed):
+    """The failure message must not splash a signed URL across a terminal or a log."""
+    odd = httpx.Response(
+        200,
+        json={
+            "media_asset": {"unexpected": 1},
+            "upload_info": {"upload_url": "https://example.com/put?X-Goog-Signature=SECRET"},
+        },
+    )
+    client = routed({("POST", "/media-assets:prepare_upload"): odd})
+    with pytest.raises(MarbleError) as caught:
+        client.prepare_upload("k.jpg", "jpg")
+
+    assert "unexpected" in str(caught.value)
+    assert "SECRET" not in str(caught.value)
 
 
 def test_a_failed_upload_says_what_the_signed_url_expects(routed, tmp_path: Path):
@@ -106,7 +143,7 @@ def test_a_failed_upload_says_what_the_signed_url_expects(routed, tmp_path: Path
     client = routed(
         {
             ("POST", "/media-assets:prepare_upload"): json_response("prepare_upload"),
-            ("PUT", "/wl-uploads/3b0f8e21"): httpx.Response(403, text="SignatureDoesNotMatch"),
+            ("PUT", UPLOAD_PATH): httpx.Response(403, text="SignatureDoesNotMatch"),
         }
     )
     with pytest.raises(MarbleError, match="required headers"):
