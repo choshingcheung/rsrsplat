@@ -133,3 +133,42 @@ message saying so, instead of producing a scene where gravity points at a wall.
 
 `groundHeight` stays genuinely variable: the floor is wherever the fitted plane put it, and
 that is rarely z = 0.
+
+## Splat renderer: Spark — 2026-09-05
+
+`@sparkjsdev/spark` 2.1.0, over `@mkkellogg/gaussian-splats-3d`, `gsplat` and `@lumaai/luma-web`.
+
+This was the highest-risk library choice in the build, because two later stages depend on
+capabilities most splat renderers do not expose, and discovering that in Stage 8 would mean
+replacing the renderer with the demo already scheduled. So it was settled first, against the
+real 371 MB capture, before any of the app existed.
+
+What had to be true, and is:
+
+- **Per-splat centres.** `parseSplats` and `forEachSplat` hand back position, scale,
+  rotation, opacity and colour per splat. Selection projects 1.5M centres to screen space
+  during a drag; a renderer that keeps them only in a GPU buffer makes that impossible.
+- **Independently transformable subsets.** `SplatMesh extends SplatGenerator extends
+  THREE.Object3D` and takes a `packedSplats` directly, so a subset built with `pushSplat`
+  becomes an object with its own position and quaternion, composed by Three.js. This is
+  exactly the property that makes the browser architecture easier than the desktop one, where
+  every Gaussian had to be transformed by hand every frame.
+
+Also in its favour: it is the most recently maintained of the four (May 2026 against January
+2025 for mkkellogg), and it is World Labs' own renderer, which is the source REPO_INIT names
+as the ideal input.
+
+**It parses the capture identically to the Python reference** — 1,495,461 splats, and the same
+bounding box, scale range and opacity range to three decimals. That makes `service/app/splat/`
+a genuine reference implementation rather than a claim. The one difference is colour: the
+reference clips to [0, 1] and Spark does not.
+
+Cost: Spark requires three >= 0.180, so Three.js moved from 0.169 to 0.185.
+
+Two things learned doing it, both recorded in `web/src/scene/splats.ts`:
+
+- **The packed format is quantised.** Positions round-trip through `pushSplat`/`getSplat` to
+  about 4e-4 — sub-millimetre at room scale, irrelevant to physics, but a reason to measure a
+  selection's half-extents from the parsed centres rather than from re-read packed data.
+- **A box at the centroid of a room scan is empty.** Splats live on surfaces; the middle of a
+  room is air. The first subset test returned zero splats and looked like a broken API.

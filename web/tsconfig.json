@@ -19,7 +19,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "exactOptionalPropertyTypes": true,
-    "types": ["vitest/globals"]
+    // node: the capture-backed tests read a 371 MB PLY off disk, which is the only way to
+    // check the browser parser against the Python reference on real data.
+    "types": ["vitest/globals", "node"]
   },
   "include": ["src", "vite.config.ts", "../contract/fixtures"]
 }

@@ -107,12 +107,21 @@ Browser, design-led, provable with no Python process running.
 - [ ] **A1 · Scaffold and design system.** Vite + React + TS + Tailwind + Three.js. Committed
       tokens before any component exists: one near-black ground, one accent, a type pairing, a
       spacing scale, motion curves. Retrofitting a visual language never happens.
-- [ ] **A2 · Renderer spike — first, before anything else.** Prove the chosen splat library
+- [x] **A2 · Renderer spike — first, before anything else.** Prove the chosen splat library
       exposes per-splat centroids **and** allows a subset to be split into an independently
       transformable group.
-      *Proof:* load the real capture, read the centroid array, pull a thousand splats into a
-      group and translate them visibly at frame rate. If it cannot, swap library now — this
-      choice silently decides whether A5 and A7 are possible.
+      *Chosen: Spark (`@sparkjsdev/spark`).* Both capabilities confirmed against the real
+      371 MB capture: `forEachSplat` gives per-splat centres, and `SplatMesh` is a
+      `THREE.Object3D` taking a `packedSplats` directly, so a subset is transformable on its
+      own. 22 web tests green, `tsc` clean.
+      *The cross-check that matters:* Spark parses the capture identically to the Python
+      reference — 1,495,461 splats, same bounding box, scales and opacity to three decimals —
+      in 611 ms. `service/app/splat/` is a real reference implementation, not a claim.
+      *Cost:* Three.js 0.169 → 0.185, which Spark requires.
+      *Two things learned:* the packed format is quantised to ~4e-4, so half-extents must be
+      measured from the parsed centres and not from re-read packed data; and a box at the
+      centroid of a room scan comes back empty, because splats live on surfaces and the middle
+      of a room is air.
 - [ ] **A3 · The viewport.** Full-bleed canvas, orbit, drag-and-drop `.ply`, loading state,
       count and frame rate readout in monospace.
       *Proof:* the real capture renders and orbits smoothly, and the Gaussian count matches
