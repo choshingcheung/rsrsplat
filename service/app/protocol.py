@@ -46,15 +46,15 @@ JointType = Literal["hinge", "slide", "button", "free", "fixed"]
 #: for anchors.
 #:
 #: Regions are defined in NORMALISED LOCAL COORDINATES (u, v, w), each in [-1, 1], along a
-#: selection's canonical axes, where u = +right, v = +front, w = +up. See Selection.axes.
+#: selection's canonical axes, where u = +front, v = +left, w = +up. See Selection.axes.
 #:
 #:     all           everything
-#:     right         u > 0             left          u < 0
-#:     front         v > 0             back          v < 0
+#:     front         u > 0             back          u < 0
+#:     left          v > 0             right         v < 0
 #:     top           w > 0             bottom        w < 0
-#:     front_upper   v > 0 and w > 0   front_lower   v > 0 and w < 0
+#:     front_upper   u > 0 and w > 0   front_lower   u > 0 and w < 0
 #:     top_third     w > 1/3           bottom_third  w < -1/3
-#:     left_third    u < -1/3          right_third   u > 1/3
+#:     left_third    v > 1/3           right_third   v < -1/3
 SubsetRegion = Literal[
     "all",
     "left",
@@ -124,10 +124,15 @@ class Selection(Wire):
     #: CANONICALISED by the client before sending, so both sides agree on what
     #: "front_lower" means without further negotiation:
     #:
-    #:     column 0 = +right, column 1 = +front, column 2 = +up
+    #:     column 0 = +front, column 1 = +left, column 2 = +up
     #:
     #: where +up is the scene up vector, and +front is the horizontal principal axis
-    #: pointing back toward the camera at the moment the selection was committed.
+    #: pointing back toward the camera at the moment the selection was committed. +left is
+    #: then determined: up x front, which is what makes the set right-handed.
+    #:
+    #: This is the same frame the articulation schema and MJCF generation use, ported from
+    #: the prototype's anchors table (+x front, +z up). One frame across the whole system,
+    #: or the splats a region names are not the splats the generated joint moves.
     #:
     #: PCA eigenvectors come back with arbitrary sign, and a left-handed set is a
     #: reflection rather than a rotation -- it mirrors everything downstream. The client

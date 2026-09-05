@@ -130,6 +130,29 @@ def test_wire_quaternions_are_unit_and_w_first() -> None:
     assert shell[2] == pytest.approx(0.0)
 
 
+def test_hinge_anchor_sits_on_the_bottom_front_edge() -> None:
+    """The canonical frame is column 0 = +front, column 1 = +left, column 2 = +up.
+
+    A bottom-hinged door's body origin sits ON its hinge anchor, so the golden example's
+    door position must equal the centroid pushed one half-depth forward and one half-height
+    down. If anyone swaps the frame's columns, this is the assertion that says so — and it
+    is worth pinning, because the mismatch it guards against is invisible in a viewer: the
+    door would swing, just carrying the wrong quarter of the object.
+    """
+    selection = CLIENT_ADAPTER.validate_python(
+        _load(FIXTURES / "client" / "selection.commit.json")
+    ).selection
+    created = SERVER_ADAPTER.validate_python(_load(FIXTURES / "server" / "object.created.json"))
+    door = next(p for p in created.object.parts if p.joint_type == "hinge")
+
+    a, c, h = selection.axes, selection.centroid, selection.half_extents
+    front, up = a[0:3], a[6:9]
+    expected = [c[i] + h[0] * front[i] - h[2] * up[i] for i in range(3)]
+
+    assert list(door.initial_pose.position) == pytest.approx(expected, abs=1e-9)
+    assert door.splat_subset == "front_lower"
+
+
 def test_hinge_range_is_in_degrees_not_radians() -> None:
     """Ranges cross the socket in degrees. A radian range would be numerically small; a
     door that opens 90 must read as 90."""

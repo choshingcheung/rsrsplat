@@ -88,3 +88,26 @@ since the articulation story is about hinged doors.
 - **Convex.** Explicitly excluded by REPO_INIT.md §2.3; in-memory state is correct here.
 - **Desktop rendering.** `render.py`, `splat_viewer.py`, `splat_occlusion.py` and the
   MuJoCo-Warp splat path solve a problem that moved to the browser.
+
+## One frame for the whole system: +front, +left, +up — 2026-09-05
+
+The audit found `anchors.py` declaring *"+x is front, +z is up, y is left-right"*, with every
+stored schema, every generated MJCF and the hand-checked reference XML depending on it. The
+contract had been drafted with a canonical selection frame of (right, front, up).
+
+Those had to become one frame. Otherwise the splats `front_lower` names are not the splats the
+MJCF hangs a door on, and the door swings carrying the wrong quarter of the object — which
+looks *correct* in a viewer, because a door swinging is a door swinging.
+
+Changed the contract rather than the prototype: the contract had no dependents yet, the
+prototype has many. The canonical selection frame is now
+
+    column 0 = +front, column 1 = +left, column 2 = +up
+
+right-handed, since +left is `up × front`. `SubsetRegion` coordinates follow: u = front,
+v = left, w = up. Pinned on both sides by a test asserting the golden dishwasher's hinge anchor
+lands on the bottom front edge, computed from the frame rather than hardcoded.
+
+Note that the prototype's anchor table has its own left/right labels backwards — in a
+right-handed frame with +x front and +z up, +y is left, not right. Harmless on a symmetric box,
+wrong for a side-hinged door. Recorded in `PORTING.md`; fix during the S2 port.

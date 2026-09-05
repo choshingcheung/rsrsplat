@@ -160,10 +160,12 @@ describe("REGION_TESTS", () => {
   });
 
   it("puts a bottom-hinged door panel in front_lower and nowhere above", () => {
-    // The point a dishwasher door's splats occupy: front face, below centre.
-    expect(REGION_TESTS.front_lower(0, 0.9, -0.6)).toBe(true);
-    expect(REGION_TESTS.front_upper(0, 0.9, -0.6)).toBe(false);
-    expect(REGION_TESTS.bottom_third(0, 0.9, -0.6)).toBe(true);
+    // Where a dishwasher door's splats sit: forward along +front (u), below centre in w.
+    expect(REGION_TESTS.front_lower(0.9, 0, -0.6)).toBe(true);
+    expect(REGION_TESTS.front_upper(0.9, 0, -0.6)).toBe(false);
+    expect(REGION_TESTS.bottom_third(0.9, 0, -0.6)).toBe(true);
+    // And it must not be caught by the back half, which would be the frame swapped.
+    expect(REGION_TESTS.back(0.9, 0, -0.6)).toBe(false);
   });
 
   it("selects everything for 'all'", () => {

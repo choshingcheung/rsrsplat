@@ -37,7 +37,9 @@ COS30, SIN30 = 0.8660254037844387, 0.5
 # Half angle, for the equivalent quaternion.
 COS15, SIN15 = 0.9659258262890683, 0.25881904510252074
 
-# Column-major: column 0 = +right, column 1 = +front, column 2 = +up.
+# Column-major: column 0 = +front, column 1 = +left, column 2 = +up. Right-handed, because
+# left is up x front. This matches the prototype's anchors frame (+x front, +z up), which
+# every stored schema and the reference MJCF already depend on.
 AXES = [COS30, SIN30, 0.0, -SIN30, COS30, 0.0, 0.0, 0.0, 1.0]
 
 # A 600 x 600 x 850 mm dishwasher: half-extents in metres.
@@ -48,16 +50,17 @@ CENTROID = [1.2, -0.4, -0.995]
 SHELL_QUAT = [COS15, 0.0, 0.0, SIN15]
 
 # The door caught mid-swing: 45 degrees about its own hinge axis, composed onto the shell's
-# yaw. The hinge runs along the door's local +right, which is column 0 of the canonical
-# frame, so in the parent's local frame the rotation is about local x.
-DOOR_HALF_OPEN_QUAT = qmul(SHELL_QUAT, axis_angle((1.0, 0.0, 0.0), 45.0))
+# yaw. A bottom-hinged door pivots about the horizontal left-right axis, which is column 1
+# of the canonical frame, so in the parent's local frame the rotation is about local y --
+# the prototype's "left_right" axis.
+DOOR_HALF_OPEN_QUAT = qmul(SHELL_QUAT, axis_angle((0.0, 1.0, 0.0), 45.0))
 
 # The door's body origin sits ON its hinge anchor -- the bottom front edge -- which is
 # what makes every generated joint pos="0 0 0" and removes a class of arithmetic bugs.
-# centroid + 0.30 * column1 + (-0.425) * column2
+# centroid + 0.30 * column0 (front) + (-0.425) * column2 (up)
 DOOR_ORIGIN = [
-    CENTROID[0] + 0.30 * -SIN30,
-    CENTROID[1] + 0.30 * COS30,
+    CENTROID[0] + 0.30 * COS30,
+    CENTROID[1] + 0.30 * SIN30,
     CENTROID[2] - 0.425,
 ]
 

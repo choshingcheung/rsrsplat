@@ -38,8 +38,8 @@
         "initialPose": {
           "bodyName": "dishwasher_door",
           "position": [
-            1.05,
-            -0.1401923788646684,
+            1.4598076211353317,
+            -0.25,
             -1.42
           ],
           "orientation": [
