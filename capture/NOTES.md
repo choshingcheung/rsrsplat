@@ -195,6 +195,49 @@ is a second capture demonstrating why.
 
 ---
 
+## Multi-image, and a caveat on the axis sign — 2026-09-05
+
+All three desk photographs into one world: `marble-1.0-draft`, **250 credits** (multi-image
+buys a 100-credit panorama against 80 for a single image), 26 seconds.
+
+Marble accepted all three views at the azimuths given and echoed them back on the world, along
+with an undocumented `reconstruct_images` field -- so the extra views are being used for
+reconstruction rather than the first being taken and the rest ignored.
+
+**Azimuths had to be estimated by eye.** The photographs carry no `GPSImgDirection`: EXIF has
+orientation and nothing else, so location services were off or the metadata was stripped. The
+three frames cover one arc of roughly 45 degrees, given as 0/20/45. Spreading them evenly to
+0/120/240 -- which is what the CLI assumes when no azimuth is passed, and it says so -- would
+claim a baseline the photographs do not have.
+
+### The output is structurally the same
+
+2,276,736 splats, SH degree 0, 127.5 MB, exactly as both single-prompt worlds. **A draft world
+appears to have a fixed splat budget**, so more input views buy better geometry within that
+budget, not more of it. `semantics_metadata` is null here too, on a third world.
+
+### The floor-detection proxies disagree on this one
+
+Worth recording, because the axis claim above rests on them:
+
+| capture | denser band | warmer band |
+|---|---|---|
+| kitchen | low | peaks sit at the trimmed range edge; not sampled |
+| desk, one image | low (20.0% vs 12.1%) | low (+0.155 vs +0.085) |
+| desk, three images | **high** (18.5% vs 16.1%) | **low** (+0.167 vs +0.237) |
+
+The **axis** is not in doubt: all three worlds put two well-separated dense bands on y and
+nothing comparable on x or z, and the desk peaks land within 0.1 units of each other whether
+built from one photograph or three.
+
+The **sign** is confirmed on two captures and unresolved by proxy on the third, where density
+and colour point opposite ways. There is no reason to think the export convention changed
+between two worlds made minutes apart on the same model -- but "no reason to think" is not a
+measurement, and this is the honest state of it. A single look at a rendered capture settles
+it in seconds and is worth more than another proxy.
+
+---
+
 ## Still to measure
 
 - Whether a **standard-model** world (`marble-1.1`, ~$1.26) populates `semantics_metadata`.
