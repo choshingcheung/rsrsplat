@@ -143,9 +143,16 @@ Browser, design-led, provable with no Python process running.
       no browser automation in this environment, so this one needs a human at the screen.
       *Note:* the camera frames on a 2nd-to-98th-percentile extent, not the bounding box —
       floaters inflate the raw box threefold and framing on it puts the room at a speck.
-- [ ] **A4 · Mock server.** Every server message implemented in-browser: invents plausible
+- [x] **A4 · Mock server.** Every server message implemented in-browser: invents plausible
       bodies, streams a fake settle curve.
-      *Proof:* the full interface works with Python not running.
+      *Proof:* 15 tests under fake timers. A crate falls, lands on its base rather than its
+      centre, and stops dead rather than jittering; a dishwasher comes back with a hinge in
+      degrees whose body sits on the bottom front edge, matching where the MJCF generator puts
+      it; pause, play, reset and remove all behave. 33 web tests green.
+      *Two real bugs it caught in itself:* reset restored orientation but never position, so a
+      crate stayed where it had fallen; and the door's spring was soft enough to still be
+      visibly creeping after three seconds. It is now an exponential approach, which cannot
+      oscillate and is what a real damped appliance door does.
 - [ ] **A5 · Selection.** Box drag, screen projection, depth filtering, live count, PCA with the
       determinant flip, highlight and dim.
       *Proof:* a synthetic cloud of known dimensions gives half-extents within a few percent and
