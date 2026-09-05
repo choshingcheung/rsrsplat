@@ -277,3 +277,31 @@ canvas {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* --------------------------------------------------------------------------------------
+ * Joint sliders
+ *
+ * A range input's default thumb is a chrome-coloured lozenge from 2009. This is a thin
+ * vertical bar in the accent colour: it reads as a scale marker on a rule, which is what it
+ * is, and it stays legible at the 2px track height an instrument wants.
+ * ------------------------------------------------------------------------------------ */
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 3px;
+  height: 14px;
+  background: var(--live);
+  border: none;
+  border-radius: 0;
+  cursor: ew-resize;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 3px;
+  height: 14px;
+  background: var(--live);
+  border: none;
+  border-radius: 0;
+  cursor: ew-resize;
+}

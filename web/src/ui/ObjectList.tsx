@@ -10,6 +10,7 @@
  */
 
 import { activeController } from "../scene/controller";
+import { JointSlider } from "./JointSlider";
 import { useScene } from "../store/scene";
 import type { PhysicsPart } from "../types/protocol";
 
@@ -32,7 +33,7 @@ export function ObjectList() {
   return (
     <div className="rise absolute bottom-20 left-8 flex flex-col gap-3">
       {objects.map((object) => (
-        <div key={object.id} className="energise pane min-w-[26ch] px-3 py-2">
+        <div key={object.id} className="energise pane min-w-[30ch] px-3 py-2.5">
           <div className="flex items-baseline justify-between gap-4">
             <span className="live" style={{ fontSize: "var(--size-read)" }}>
               {object.label}
@@ -48,23 +49,29 @@ export function ObjectList() {
             </button>
           </div>
 
-          <div className="mt-1.5 flex flex-col gap-0.5">
-            {object.parts.map((part) => (
-              <div key={part.bodyName} className="flex items-baseline justify-between gap-4">
-                <span
-                  className="num"
-                  style={{ fontSize: "var(--size-micro)", color: "var(--text-lo)" }}
-                >
-                  {part.bodyName.split("__").pop()}
-                </span>
-                <span
-                  className="num"
-                  style={{ fontSize: "var(--size-micro)", color: "var(--text-mid)" }}
-                >
-                  {describe(part)}
-                </span>
-              </div>
-            ))}
+          {/* A slider per driven joint: the interaction for anything fitted. A dishwasher
+              does not fall over, and no amount of gravity opens its door. */}
+          <div className="mt-2 flex flex-col gap-2">
+            {object.parts.map((part) =>
+              part.range ? (
+                <JointSlider key={part.bodyName} part={part} />
+              ) : (
+                <div key={part.bodyName} className="flex items-baseline justify-between gap-4">
+                  <span
+                    className="num"
+                    style={{ fontSize: "var(--size-micro)", color: "var(--text-lo)" }}
+                  >
+                    {part.bodyName.split("__").pop()}
+                  </span>
+                  <span
+                    className="num"
+                    style={{ fontSize: "var(--size-micro)", color: "var(--text-mid)" }}
+                  >
+                    {describe(part)}
+                  </span>
+                </div>
+              ),
+            )}
           </div>
 
           <div

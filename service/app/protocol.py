@@ -263,6 +263,23 @@ class ObjectRemove(Wire):
     object_id: str = Field(alias="objectId")
 
 
+class JointSet(Wire):
+    """Drive one joint to a position.
+
+    Most of a room is fitted: a dishwasher is bolted in, and no amount of gravity opens its
+    door. Force is the wrong verb for those -- the interaction is to WORK the mechanism,
+    which means driving the joint directly.
+
+    ``value`` is in the same units as the part's range: DEGREES for a hinge, METRES for a
+    slide or button. The radians conversion happens on this side of the socket, once.
+    """
+
+    type: Literal["joint.set"] = "joint.set"
+    #: The part's ``bodyName``, not its joint name. The service knows the mapping.
+    body_name: str = Field(alias="bodyName")
+    value: float
+
+
 class SimControl(Wire):
     type: Literal["sim.control"] = "sim.control"
     action: Literal["play", "pause", "reset"]
@@ -282,6 +299,7 @@ ClientMessage = Annotated[
         SelectionCommit,
         ObjectPhysicalize,
         ObjectRemove,
+        JointSet,
         SimControl,
         MeshAttach,
     ],
@@ -338,6 +356,7 @@ __all__ = [
     "ClientMessage",
     "JointType",
     "Mat3",
+    "JointSet",
     "MeshAttach",
     "Obstacle",
     "ObjectCreated",

@@ -1,0 +1,5 @@
+{
+  "type": "joint.set",
+  "bodyName": "obj_01__door",
+  "value": 62.5
+}

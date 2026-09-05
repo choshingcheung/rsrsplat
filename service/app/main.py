@@ -32,6 +32,7 @@ from .mjcf.build import SchemaError
 from .mjcf.scene import SceneError
 from .protocol import (
     ClientMessage,
+    JointSet,
     ObjectCreated,
     ObjectFailed,
     ObjectPhysicalize,
@@ -115,6 +116,9 @@ class Connection:
             await self.on_physicalize(message)
         elif isinstance(message, ObjectRemove):
             await self.on_remove(message)
+        elif isinstance(message, JointSet):
+            if self.session is not None:
+                self.session.set_joint(message.body_name, message.value)
         elif isinstance(message, SimControl):
             await self.on_control(message)
         else:

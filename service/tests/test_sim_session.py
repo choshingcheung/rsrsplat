@@ -278,3 +278,61 @@ def test_the_simulation_runs_faster_than_real_time(session, selection):
 
     rtf = real_time_factor(session, seconds=0.5)
     assert rtf > 1.0, f"real-time factor {rtf:.1f}x with three objects"
+
+
+# ---- working a mechanism -------------------------------------------------------------------
+
+
+def test_a_hinge_is_driven_in_degrees(session, selection):
+    """Most of a room is fitted, and no amount of gravity opens a bolted-in dishwasher. The
+    interaction for those is to work the mechanism directly."""
+    session.physicalize("obj_01", load("dishwasher"), selection)
+    assert session.set_joint("obj_01__door", 45.0) is True
+    assert session.joint_value("obj_01__door") == pytest.approx(45.0, abs=1e-6)
+
+    jid = mujoco.mj_name2id(session.model, mujoco.mjtObj.mjOBJ_JOINT, "obj_01__door_j")
+    raw = session.data.qpos[session.model.jnt_qposadr[jid]]
+    assert raw == pytest.approx(np.deg2rad(45.0)), "qpos is radians; the wire is degrees"
+
+
+def test_a_slide_is_driven_in_metres_not_radians(session, selection):
+    """The conversion is per joint TYPE. A slide put through radians() moves 57 times too far."""
+    session.physicalize("obj_01", load("dishwasher"), selection)
+    session.set_joint("obj_01__rack", 0.12)
+    assert session.joint_value("obj_01__rack") == pytest.approx(0.12, abs=1e-9)
+
+    jid = mujoco.mj_name2id(session.model, mujoco.mjtObj.mjOBJ_JOINT, "obj_01__rack_j")
+    assert session.data.qpos[session.model.jnt_qposadr[jid]] == pytest.approx(0.12)
+
+
+def test_a_joint_cannot_be_driven_past_its_own_limit(session, selection):
+    """A slider that could exceed the range would put the door through the shell."""
+    session.physicalize("obj_01", load("dishwasher"), selection)
+    session.set_joint("obj_01__door", 400.0)
+    assert session.joint_value("obj_01__door") == pytest.approx(90.0, abs=1e-6)
+    session.set_joint("obj_01__door", -50.0)
+    assert session.joint_value("obj_01__door") == pytest.approx(0.0, abs=1e-6)
+
+
+def test_driving_a_joint_moves_the_body_the_client_is_watching(session, selection):
+    """The pose stream is how the splats find out. If the body does not move, nothing does."""
+    session.physicalize("obj_01", load("dishwasher"), selection)
+    before = next(p for p in session.poses().poses if p.body_name == "obj_01__door")
+    session.set_joint("obj_01__door", 90.0)
+    after = next(p for p in session.poses().poses if p.body_name == "obj_01__door")
+    assert after.orientation != before.orientation
+
+
+def test_a_driven_joint_stays_put_rather_than_springing_back(session, selection):
+    """Velocity is zeroed with the position, or the door carries the momentum of a value that
+    changed instantly and flies off its own limit."""
+    session.physicalize("obj_01", load("dishwasher"), selection)
+    session.set_joint("obj_01__door", 60.0)
+    session.advance(MAX_CATCHUP)
+    assert session.joint_value("obj_01__door") == pytest.approx(60.0, abs=1.0)
+
+
+def test_driving_a_joint_that_does_not_exist_is_refused_not_crashed(session, selection):
+    session.physicalize("obj_01", load("dishwasher"), selection)
+    assert session.set_joint("obj_01__nonsense", 10.0) is False
+    assert session.joint_value("obj_01__nonsense") is None

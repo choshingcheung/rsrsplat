@@ -378,6 +378,11 @@ export class SceneController {
     this.emit({ type: "object.physicalize", selectionId: this.selectionId, prompt });
   }
 
+  /** Drive a joint. Wire units: degrees for a hinge, metres for a slide. */
+  setJoint(bodyName: string, value: number): void {
+    this.emit({ type: "joint.set", bodyName, value });
+  }
+
   control(action: "play" | "pause" | "reset"): void {
     this.emit({ type: "sim.control", action });
   }

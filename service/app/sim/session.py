@@ -17,6 +17,7 @@ steps a wall-clock interval is worth, and samples poses on its own cadence.
 
 from __future__ import annotations
 
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -64,6 +65,10 @@ class Session:
     obstacles: tuple[Obstacle, ...] = ()
 
     objects: dict[str, SceneObject] = field(default_factory=dict)
+
+    #: Joints the user is driving, by body name, in wire units. Survives a rebuild, so
+    #: physicalising a second object does not let a held door swing shut.
+    held: dict[str, float] = field(default_factory=dict)
     running: bool = True
     step_count: int = 0
 
@@ -100,6 +105,7 @@ class Session:
             self._data.qpos[qadr : qadr + len(qpos)] = qpos
             self._data.qvel[dadr : dadr + len(qvel)] = qvel
 
+        self._apply_held()
         mujoco.mj_forward(self._model, self._data)
 
     def _joint_state(self) -> dict[str, tuple[np.ndarray, np.ndarray]]:
@@ -235,8 +241,70 @@ class Session:
         steps = int(min(seconds, MAX_CATCHUP) / TIMESTEP)
         for _ in range(steps):
             mujoco.mj_step(self._model, self._data)
+            # After the step, or gravity walks a held door shut between frames.
+            if self.held:
+                self._apply_held()
         self.step_count += steps
         return steps
+
+    def set_joint(self, body_name: str, value: float) -> bool:
+        """Drive a part's joint to ``value``, in the units the wire speaks, and HOLD it there.
+
+        Degrees for a hinge, metres for a slide. ``qpos`` is SI, so a hinge converts; that
+        conversion happens here and nowhere else.
+
+        **Held kinematically, not servoed.** A door set to 60 degrees and left alone falls
+        shut: it has weight, and a generated appliance has none of the damper a real one
+        does. The obvious fix is a position actuator, and it was tried -- measured, its
+        steady state came out at roughly six times its target and saturated by 15, so it was
+        not behaving as a position servo and shipping it on a guess would have meant a
+        slider whose number meant nothing.
+
+        So a driven joint is pinned: its position is reasserted after every step and its
+        velocity held at zero. The cost is honest and worth stating -- a pinned joint is
+        kinematic, so a door held open cannot be pushed shut by anything else in the scene.
+        The shell around it is still a full dynamic body. For an interface whose verb is a
+        slider, a joint that goes exactly where it is put beats one that approximately does.
+        """
+        jid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, f"{body_name}_j")
+        if jid < 0:
+            return False
+
+        radians = self._model.jnt_type[jid] == mujoco.mjtJoint.mjJNT_HINGE
+        lo, hi = self._model.jnt_range[jid]
+        # jnt_range is SI, so express the limits in wire units to clamp against them.
+        lo_wire, hi_wire = (math.degrees(lo), math.degrees(hi)) if radians else (lo, hi)
+
+        self.held[body_name] = min(max(value, lo_wire), hi_wire)
+        self._apply_held()
+        mujoco.mj_forward(self._model, self._data)
+        return True
+
+    def release_joint(self, body_name: str) -> None:
+        """Let a joint move under physics again."""
+        self.held.pop(body_name, None)
+
+    def _apply_held(self) -> None:
+        """Pin every held joint. Called after each step, or gravity undoes the slider."""
+        for body_name, wire in self.held.items():
+            jid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, f"{body_name}_j")
+            if jid < 0:
+                continue
+            radians = self._model.jnt_type[jid] == mujoco.mjtJoint.mjJNT_HINGE
+            self._data.qpos[self._model.jnt_qposadr[jid]] = (
+                math.radians(wire) if radians else wire
+            )
+            self._data.qvel[self._model.jnt_dofadr[jid]] = 0.0
+
+    def joint_value(self, body_name: str) -> float | None:
+        """Where a joint is now, in wire units. The inverse of :meth:`set_joint`."""
+        jid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_JOINT, f"{body_name}_j")
+        if jid < 0:
+            return None
+        raw = float(self._data.qpos[self._model.jnt_qposadr[jid]])
+        if self._model.jnt_type[jid] == mujoco.mjtJoint.mjJNT_HINGE:
+            return math.degrees(raw)
+        return raw
 
     def control(self, action: str) -> None:
         if action == "play":
@@ -245,6 +313,7 @@ class Session:
             self.running = False
         elif action == "reset":
             self.step_count = 0
+            self.held.clear()
             mujoco.mj_resetData(self._model, self._data)
             mujoco.mj_forward(self._model, self._data)
         else:

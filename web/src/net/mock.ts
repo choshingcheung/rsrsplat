@@ -58,6 +58,8 @@ interface Body {
   angle: number;
   hingeRange: [number, number] | null;
   hingeAxis: Vec3;
+  /** Driven by hand, so the swing-open animation leaves it alone. */
+  held: boolean;
   /** Where this body started, so reset can actually put it back. Both are needed: restoring
    *  the orientation alone leaves a crate wherever it had fallen to. */
   restPosition: [number, number, number];
@@ -110,6 +112,8 @@ export class MockService {
         return this.physicalize(message.selectionId, message.prompt);
       case "object.remove":
         return this.remove(message.objectId);
+      case "joint.set":
+        return this.setJoint(message.bodyName, message.value);
       case "sim.control":
         return this.control(message.action);
       case "mesh.attach":
@@ -178,6 +182,7 @@ export class MockService {
       angle: 0,
       hingeRange: null,
       hingeAxis: [0, 1, 0],
+      held: false,
     };
     this.bodies.push(shell);
 
@@ -217,6 +222,7 @@ export class MockService {
         angle: 0,
         hingeRange: [0, Math.PI / 2],
         hingeAxis: [0, 1, 0],
+        held: false,
       };
       this.bodies.push(door);
       parts.push({
@@ -240,6 +246,21 @@ export class MockService {
     this.emit({ type: "object.created", object });
   }
 
+  /**
+   * Drive a joint to a position, in wire units, and hold it there.
+   *
+   * Matches the service: a held joint is pinned rather than servoed, so it goes exactly
+   * where the slider says. See `Session.set_joint` for why.
+   */
+  private setJoint(bodyName: string, value: number) {
+    const body = this.bodies.find((b) => b.name === bodyName);
+    if (!body?.hingeRange) return;
+    const degrees = Math.min(Math.max(value, 0), 90);
+    body.angle = (degrees * Math.PI) / 180;
+    body.held = true;
+    body.orientation = composeHinge(body.restQuaternion, body.hingeAxis, body.angle);
+  }
+
   private remove(objectId: string) {
     this.objects = this.objects.filter((o) => o.id !== objectId);
     this.bodies = this.bodies.filter((b) => !b.name.startsWith(`${objectId}__`));
@@ -256,6 +277,7 @@ export class MockService {
         body.position = [...body.restPosition];
         body.velocity = [0, 0, 0];
         body.angle = 0;
+        body.held = false;
         body.orientation = body.restQuaternion;
       }
     }
@@ -290,7 +312,7 @@ export class MockService {
           }
         }
 
-        if (body.hingeRange) {
+        if (body.hingeRange && !body.held) {
           // Swing open, then hold.
           const target = body.hingeRange[1];
           body.angle += (target - body.angle) * (1 - Math.exp(-TIMESTEP / HINGE_TAU));

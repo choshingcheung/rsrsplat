@@ -252,6 +252,23 @@ export interface ObjectRemove {
   objectId: string;
 }
 
+/**
+ * Drive one joint to a position.
+ *
+ * Most of a room is fitted: a dishwasher is bolted in, and no amount of gravity opens its
+ * door. Force is the wrong verb for those — the interaction is to WORK the mechanism, which
+ * means driving the joint directly.
+ *
+ * `value` is in the same units as the part's `range`: DEGREES for a hinge, METRES for a
+ * slide or button. Never radians.
+ */
+export interface JointSet {
+  type: "joint.set";
+  /** The part's `bodyName`, not its joint name. The service knows the mapping. */
+  bodyName: string;
+  value: number;
+}
+
 export interface SimControl {
   type: "sim.control";
   action: "play" | "pause" | "reset";
@@ -269,6 +286,7 @@ export type ClientMessage =
   | SelectionCommit
   | ObjectPhysicalize
   | ObjectRemove
+  | JointSet
   | SimControl
   | MeshAttach;
 
@@ -338,6 +356,7 @@ export const CLIENT_MESSAGE_TYPES = [
   "selection.commit",
   "object.physicalize",
   "object.remove",
+  "joint.set",
   "sim.control",
   "mesh.attach",
 ] as const satisfies Exhaustive<readonly ClientMessage["type"][], ClientMessage["type"]>;

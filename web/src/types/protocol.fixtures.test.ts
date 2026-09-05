@@ -17,6 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import jointSet from "../../../contract/fixtures/client/joint.set.json";
 import meshAttach from "../../../contract/fixtures/client/mesh.attach.json";
 import objectPhysicalize from "../../../contract/fixtures/client/object.physicalize.json";
 import objectRemove from "../../../contract/fixtures/client/object.remove.json";
@@ -34,6 +35,7 @@ import {
   REGION_TESTS,
   SERVER_MESSAGE_TYPES,
   type Loose,
+  type JointSet,
   type MeshAttach,
   type ObjectCreated,
   type ObjectFailed,
@@ -55,6 +57,7 @@ const CLIENT_FIXTURES = {
   "selection.commit": selectionCommit satisfies Loose<SelectionCommit>,
   "object.physicalize": objectPhysicalize satisfies Loose<ObjectPhysicalize>,
   "object.remove": objectRemove satisfies Loose<ObjectRemove>,
+  "joint.set": jointSet satisfies Loose<JointSet>,
   "sim.control": simControl satisfies Loose<SimControl>,
   "mesh.attach": meshAttach satisfies Loose<MeshAttach>,
 };
@@ -171,5 +174,14 @@ describe("REGION_TESTS", () => {
   it("selects everything for 'all'", () => {
     expect(REGION_TESTS.all(0, 0, 0)).toBe(true);
     expect(REGION_TESTS.all(-1, 1, -1)).toBe(true);
+  });
+});
+
+describe("joint.set", () => {
+  it("carries a hinge target in degrees, matching the part's own range", () => {
+    // The units trap this whole project keeps hitting. qpos is radians; the wire is not.
+    // 62.5 is unambiguous -- a radian value inside a 0-90 degree range would be under 1.6.
+    expect(jointSet.value).toBe(62.5);
+    expect(jointSet.value).toBeGreaterThan(Math.PI / 2);
   });
 });

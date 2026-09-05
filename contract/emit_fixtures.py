@@ -112,6 +112,12 @@ CLIENT = {
         "type": "object.remove",
         "objectId": "obj_01",
     },
+    "joint.set": {
+        # Degrees, because the door is a hinge. The service converts to radians once.
+        "type": "joint.set",
+        "bodyName": "obj_01__door",
+        "value": 62.5,
+    },
     "sim.control": {
         "type": "sim.control",
         "action": "play",
