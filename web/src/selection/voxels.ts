@@ -77,7 +77,7 @@ export interface LocalBox {
 export interface Grid {
   /** Cells along front, left, up. */
   dims: [number, number, number];
-  /** Local-frame coordinate of cell (0,0,0)'s centre. */
+  /** Local-frame coordinate of cell (0,0,0)'s LOW CORNER: `toBoxes` adds half a cell. */
   origin: THREE.Vector3;
   cell: number;
   /** Splats per cell. */

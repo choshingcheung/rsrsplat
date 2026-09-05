@@ -108,7 +108,11 @@ export interface WorldFrame {
  */
 export interface Obstacle {
   id: string;
-  kind: "surface" | "wall";
+  /**
+   * `surface` a detected worktop, `wall` the backstop box round the room, `solid` the
+   * voxelised scan itself. Cosmetic only: to the solver all three are static boxes.
+   */
+  kind: "surface" | "wall" | "solid";
   /** Centre. METRES, scene coordinates. */
   position: Vec3;
   /** Half-extents, matching MJCF box `size` semantics. */

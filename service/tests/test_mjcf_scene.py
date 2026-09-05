@@ -430,3 +430,88 @@ def test_the_measured_shape_is_in_the_objects_own_frame(selection, world):
     front = np.asarray(selection.axes[0:3])
     expected = data.xpos[body] + 0.25 * front
     assert data.geom_xpos[gid] == pytest.approx(expected, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------------------
+# Carving the scan out from under a physicalised object
+# ---------------------------------------------------------------------------------------
+
+
+def test_the_scan_s_own_copy_of_an_object_is_carved_away():
+    """The room's boxes were measured before anything was selected, object included."""
+    from app.mjcf.scene import carve_obstacles
+
+    crate = load("crate")
+    obj = SceneObject("obj_01", crate, (1.0, 0.5, GROUND + 0.3), (1.0, 0.0, 0.0, 0.0))
+    here = obstacle("solid", (1.0, 0.5, GROUND + 0.3), (0.08, 0.08, 0.08), "solid_1")
+    far = obstacle("solid", (2.4, 0.5, GROUND + 0.3), (0.08, 0.08, 0.08), "solid_2")
+
+    kept = carve_obstacles((here, far), [obj])
+    assert [o.id for o in kept] == ["solid_2"]
+
+
+def test_carving_follows_the_object_s_own_axes():
+    """A rotated object is not an axis-aligned box, and carving it as one is wrong twice.
+
+    A box turned 45 degrees reaches further along the diagonal than its half-extents suggest
+    and less far along the world axes. Carving by a world-aligned bound would both leave
+    scenery inside the object's corners and delete scenery beside its faces.
+    """
+    from app.mjcf.scene import carve_obstacles
+
+    crate = load("crate")
+    half = half_extents(crate)
+    s2 = 2.0 ** 0.5 / 2
+    turned = (s2, 0.0, 0.0, s2)  # 90 degrees about z, (w, x, y, z)
+
+    obj = SceneObject("obj_01", crate, (0.0, 0.0, GROUND + 0.5), turned)
+    # Just outside the object along its ROTATED front, which used to be world +y.
+    outside = obstacle(
+        "solid", (0.0, half[0] + 0.30, GROUND + 0.5), (0.02, 0.02, 0.02), "out"
+    )
+    inside = obstacle(
+        "solid", (0.0, half[0] * 0.5, GROUND + 0.5), (0.02, 0.02, 0.02), "in"
+    )
+
+    kept = {o.id for o in carve_obstacles((outside, inside), [obj])}
+    assert kept == {"out"}
+
+
+def test_an_object_born_inside_the_scan_does_not_explode(world):
+    """The failure this prevents, measured rather than argued.
+
+    A body overlapping static geometry is ejected at whatever speed the penetration implies.
+    ``build_scene`` carves first, so the same scene is quiet.
+    """
+    crate = dict(load("crate"), mass=5.0)
+    rest = resting_height(crate, GROUND)
+    obj = SceneObject("obj_01", crate, (0.0, 0.0, rest), (1.0, 0.0, 0.0, 0.0))
+
+    # The scan's boxes, right through the middle of it.
+    room = tuple(
+        obstacle("solid", (0.0, 0.0, rest + dz), (0.1, 0.1, 0.04), f"solid_{i}")
+        for i, dz in enumerate((-0.05, 0.0, 0.05))
+    )
+
+    model = compile_scene(world, [obj], room)
+    data = mujoco.MjData(model)
+    for _ in range(600):
+        mujoco.mj_step(model, data)
+
+    bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "obj_01__crate")
+    assert np.linalg.norm(data.xpos[bid][:2]) < 0.05  # did not shoot sideways
+    assert data.xpos[bid][2] == pytest.approx(rest, abs=5e-3)  # still on the floor
+
+
+def test_carving_leaves_the_room_alone(world):
+    """Only what the object occupies goes. The floor it stands on must survive."""
+    from app.mjcf.scene import carve_obstacles
+
+    crate = load("crate")
+    obj = SceneObject("obj_01", crate, (0.0, 0.0, GROUND + 0.4), (1.0, 0.0, 0.0, 0.0))
+    floor = obstacle("solid", (0.0, 0.0, GROUND - 0.04), (2.0, 2.0, 0.04), "floor")
+    wall = obstacle("wall", (2.0, 0.0, GROUND + 1.0), (0.05, 2.0, 1.0), "wall_xhi")
+
+    kept = {o.id for o in carve_obstacles((floor, wall), [obj])}
+    assert kept == {"floor", "wall_xhi"}
+

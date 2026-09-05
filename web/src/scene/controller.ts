@@ -36,6 +36,7 @@ import type {
 } from "../types/protocol";
 import { bind, orientationOf, unbind, type BoundObject } from "./binding";
 import { alignScene, roomObstacles } from "./ground";
+import { sceneCollision } from "./solid";
 import { applyAlignment, readPly, type SplatCloud } from "./splats";
 
 /** How often the frame counter reaches React. Every frame would re-render the tree at 60 Hz. */
@@ -198,15 +199,35 @@ export class SceneController {
       // The room, as boxes physics can hit. Without these the only solid thing in the
       // scene is the ground plane, and a bottle knocked off a worktop falls through the
       // worktop, through the floor, and out of the world.
-      const obstacles = roomObstacles(aligned.centers, aligned.count, alignment.groundHeight);
+      const room = roomObstacles(aligned.centers, aligned.count, alignment.groundHeight);
+
+      // ...and the room ITSELF, voxelised. The line above gives four walls and whatever
+      // horizontal patches were detected -- six geoms for a whole kitchen, which leaves the
+      // units, the sink and the appliances as scenery you fall straight through. These are
+      // the scan's own shape, so a cupboard is a cupboard.
+      const solid = sceneCollision(
+        aligned.centers,
+        aligned.count,
+        cloud.opacities,
+        alignment.groundHeight,
+      );
+      const obstacles = [...room, ...solid];
+
       // The floor and every worktop. A segmentation flood that crosses one of these
       // leaves through the floor and comes back with the entire room.
       this.surfaces = [
         alignment.groundHeight,
-        ...obstacles
+        ...room
           .filter((o) => o.kind === "surface")
           .map((o) => o.position[2] + o.halfExtents[2]),
       ];
+
+      if (import.meta.env.DEV) {
+        console.debug(
+          `rsrsplat: room is ${obstacles.length} static geoms ` +
+            `(${room.length} wall/surface, ${solid.length} from the scan)`,
+        );
+      }
 
       this.emit({
         type: "scene.load",

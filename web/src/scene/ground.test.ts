@@ -118,6 +118,51 @@ describe("estimating up", () => {
     expect(Math.abs(trueUp.x)).toBeGreaterThan(0.1); // genuinely oblique
     expect(Math.abs(trueUp.y)).toBeGreaterThan(0.1);
   });
+
+  it("does not lose the floor to a small diagonal that aliases into peaks", () => {
+    // The bug this replaced, from the kitchen capture:
+    //
+    //     normal  0.00,-1.00, 0.00   inliers 7070   layerScore 2   <- the floor
+    //     normal -0.71, 0.01,-0.71   inliers 1892   layerScore 5   <- a 45 degree diagonal
+    //
+    // Peak count picked the diagonal and the whole room was aligned 45 degrees off vertical.
+    // A room of straight edges projected onto a diagonal folds into bands, and peak COUNT
+    // cannot tell that from real layering. Inlier mass can.
+    const points: number[] = [];
+    const push = (x: number, y: number, z: number) => points.push(x, y, z);
+
+    // A dense floor and ceiling: the true up, and deliberately only two peaks.
+    for (let i = 0; i < 4000; i++) {
+      const x = (i % 63) * 0.05 - 1.5;
+      const y = Math.floor(i / 63) * 0.05 - 1.5;
+      push(x, y, 0);
+      push(x, y, 2.5);
+    }
+    // A smaller diagonal wall, carrying regularly spaced ribs so that projecting onto its
+    // normal produces many peaks -- exactly the aliasing that fooled the old score.
+    const n = new THREE.Vector3(1, 0, 1).normalize();
+    const t = new THREE.Vector3(0, 1, 0);
+    const b = new THREE.Vector3().crossVectors(n, t);
+    for (let rib = 0; rib < 8; rib++) {
+      for (let i = 0; i < 90; i++) {
+        const p = new THREE.Vector3()
+          .addScaledVector(t, (i % 30) * 0.08 - 1.2)
+          .addScaledVector(b, Math.floor(i / 30) * 0.3)
+          .addScaledVector(n, rib * 0.28);
+        push(p.x, p.y, p.z + 1.2);
+      }
+    }
+
+    const cloud = Float64Array.from(points);
+    const planes = findPlanes(cloud);
+
+    // The trap is really set: on peak count alone the diagonal beats the floor. Without
+    // this the test would pass whatever `estimateUp` did.
+    expect(layerScore(cloud, n)).toBeGreaterThan(layerScore(cloud, new THREE.Vector3(0, 0, 1)));
+
+    const { up } = estimateUp(planes, cloud);
+    expect(Math.abs(up.z)).toBeGreaterThan(0.95); // and inlier mass still picks the floor
+  });
 });
 
 describe("which end is the floor", () => {

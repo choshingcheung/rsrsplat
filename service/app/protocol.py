@@ -113,14 +113,22 @@ class Obstacle(Wire):
     these the only solid thing in a scene is the ground plane -- an object knocked off a
     counter falls through the counter, through the floor, and out of the world.
 
-    Derived in the browser, which owns the Gaussians. Deliberately coarse: a room made of a
-    dozen boxes stops the same things a millimetre-accurate one would.
+    Derived in the browser, which owns the Gaussians.
+
+    Three kinds, and the distinction is only ever cosmetic in the viewer -- to the solver they
+    are identical static boxes:
+
+    - ``surface``: a detected horizontal patch, a worktop or a shelf.
+    - ``wall``: the box round the room's extent, a backstop so nothing escapes through the
+      holes every scan has.
+    - ``solid``: the scan itself, voxelised. This is the bulk of them and what makes the
+      cupboards and the sink stop things, rather than only the floor and the walls.
 
     Axis-aligned in the aligned frame, so no orientation is carried.
     """
 
     id: str
-    kind: Literal["surface", "wall"]
+    kind: Literal["surface", "wall", "solid"]
     #: Centre. METRES, scene coordinates.
     position: Vec3
     #: Half-extents, matching MJCF box ``size`` semantics.

@@ -176,7 +176,7 @@ def build_scene(
     )
 
     fric = f"{mu:g} 0.005 0.0001"
-    for obstacle in obstacles:
+    for obstacle in carve_obstacles(obstacles, objects):
         ET.SubElement(
             body,
             "geom",
@@ -220,6 +220,68 @@ def compile_scene(
     return mujoco.MjModel.from_xml_string(to_xml(world, objects, obstacles))
 
 
+def carve_obstacles(
+    obstacles: tuple[Obstacle, ...],
+    objects: list[SceneObject],
+    margin: float = 0.01,
+) -> tuple[Obstacle, ...]:
+    """Drop the static geometry a physicalised object now occupies.
+
+    The room's collision boxes are voxelised from the scan, and the scan still contains the
+    object -- the browser cuts it from the RENDER, but the obstacles were measured before
+    anyone selected anything. Leave them and the new dynamic body spawns inside a frozen
+    copy of itself, which MuJoCo resolves the only way it can: by ejecting it at whatever
+    speed the penetration implies. It reads as the object exploding on contact with nothing.
+
+    Overlap is decided by separating axis over the six face normals -- three world, three of
+    the object's -- and NOT the nine edge cross-products. That is deliberately incomplete in
+    the safe direction: it can call a near-miss an overlap and carve a box that did not
+    strictly need carving, which costs a little scenery. The opposite error leaves a body
+    embedded in the room, which costs the demo.
+    """
+    if not objects:
+        return obstacles
+
+    boxes = []
+    for obj in objects:
+        rotation = quat.to_mat(np.asarray(obj.orientation, dtype=np.float32)).astype(float)
+        half = np.asarray(half_extents(obj.schema), dtype=float) + margin
+        boxes.append((np.asarray(obj.position, dtype=float), rotation, half))
+
+    kept = tuple(o for o in obstacles if not any(_overlaps(o, *b) for b in boxes))
+    return kept
+
+
+def _overlaps(
+    obstacle: Obstacle,
+    centre: np.ndarray,
+    rotation: np.ndarray,
+    half: np.ndarray,
+) -> bool:
+    """Separating-axis test between a world-aligned obstacle and an oriented object box.
+
+    ``rotation`` has the object's axes as COLUMNS, matching ``placement_from_selection``.
+    """
+    c = np.asarray(obstacle.position, dtype=float)
+    h = np.asarray(obstacle.half_extents, dtype=float)
+    d = c - centre
+
+    # The three world axes: project the object's box onto each.
+    for i in range(3):
+        reach = float(np.abs(rotation[i, :]) @ half)
+        if abs(d[i]) > h[i] + reach:
+            return False
+
+    # The three object axes: project the obstacle's box onto each.
+    for j in range(3):
+        axis = rotation[:, j]
+        reach = float(np.abs(axis) @ h)
+        if abs(float(d @ axis)) > half[j] + reach:
+            return False
+
+    return True
+
+
 def resting_height(schema: dict[str, Any], ground_height: float) -> float:
     """The z at which this object's centroid sits with its base on the floor.
 
@@ -237,6 +299,7 @@ __all__ = [
     "SceneError",
     "SceneObject",
     "build_scene",
+    "carve_obstacles",
     "check_world",
     "compile_scene",
     "object_from_selection",

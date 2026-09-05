@@ -44,6 +44,22 @@ function room(): SplatCloud {
   for (let i = 0; i < 3000; i++) {
     points.push([(rand() - 0.5) * 6, (rand() - 0.5) * 6, 2.6 + (rand() - 0.5) * 0.02]);
   }
+  // Four walls. Not decoration: `estimateUp` fits planes and scores how well the cloud
+  // STACKS along each candidate normal, and a floor-and-ceiling sandwich with open sides
+  // gives it two parallel planes and a 6 m horizontal span that scores better than the 2.6 m
+  // vertical one. Without walls it confidently returns a horizontal "up", scales the room by
+  // 0.455, and every height downstream is wrong -- quietly, because the render still looks
+  // like a room.
+  for (let i = 0; i < 3000; i++) {
+    const t = (rand() - 0.5) * 6;
+    const z = rand() * 2.6;
+    const side = Math.floor(rand() * 4);
+    const j = (rand() - 0.5) * 0.02;
+    if (side === 0) points.push([t, -3 + j, z]);
+    else if (side === 1) points.push([t, 3 + j, z]);
+    else if (side === 2) points.push([-3 + j, t, z]);
+    else points.push([3 + j, t, z]);
+  }
   // A 0.5 m crate sitting on the floor at the origin.
   for (let i = 0; i < 3000; i++) {
     points.push([(rand() - 0.5) * 0.5, (rand() - 0.5) * 0.5, 0.25 + (rand() - 0.5) * 0.5]);
@@ -154,7 +170,17 @@ describe("the full path: select, describe, bind, move", () => {
     const last = batches.at(-1) as { poses: { bodyName: string; position: number[] }[] };
     const pose = last.poses.find((p) => p.bodyName === shell.bodyName);
     expect(pose, "the stream must carry the body this mesh is bound to").toBeDefined();
-    expect(pose!.position[2]).toBeLessThan(startZ);
+
+    // The crate was selected where it STANDS, so correct physics is that it stays there:
+    // resting on the floor, not falling through it and not launched off it.
+    //
+    // This assertion used to read `toBeLessThan(startZ)` -- the crate must fall -- and it
+    // held for the wrong reason. The floor was being put 45 degrees and a metre away from
+    // where it is, so the crate spawned in mid-air and dropped. Once `estimateUp` stopped
+    // choosing a diagonal, the crate spawned on the floor and the test failed by 4 cm,
+    // which is what a correct scene looks like.
+    expect(pose!.position[2]).toBeGreaterThan(alignment.groundHeight);
+    expect(Math.abs(pose!.position[2] - startZ)).toBeLessThan(0.1);
 
     service.stop();
     unbind(bound, new THREE.Object3D());

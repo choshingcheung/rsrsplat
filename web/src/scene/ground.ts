@@ -227,32 +227,63 @@ export function layerScore(points: Float64Array, normal: THREE.Vector3, bins = 2
   return peaks;
 }
 
-/** Which way is up, from how layered the scene is along each candidate plane normal. */
+/**
+ * Which way is up.
+ *
+ * The first version scored candidates by `layerScore` alone -- how many density peaks the
+ * cloud makes when projected onto each candidate normal -- and it is wrong on real captures
+ * in a way that is invisible until the physics is wrong. Measured on the kitchen scan:
+ *
+ *     normal  0.00,-1.00, 0.00   inliers 7070   layerScore 2      <- the floor
+ *     normal -0.71, 0.01,-0.71   inliers 1892   layerScore 5      <- a 45 degree diagonal
+ *
+ * and the diagonal won. Projecting a room full of straight edges onto a diagonal axis makes
+ * peaks by aliasing: cabinet fronts, counter edges and the floor all fold into distinct
+ * bands. Peak COUNT does not distinguish those from the real layering of a building.
+ *
+ * The whole kitchen was therefore aligned 45 degrees off vertical -- which reads on screen as
+ * a room that is merely oddly framed, while every height, every surface and the gravity
+ * direction underneath them are wrong.
+ *
+ * What is reliable is that a room's floor and ceiling are PARALLEL and are together the most
+ * observed thing in it. So families of parallel planes are scored by total inlier mass, and
+ * `layerScore` survives only to break ties between families of comparable size -- which is
+ * the case it was actually good at.
+ */
 export function estimateUp(planes: Plane[], points: Float64Array): { up: THREE.Vector3; score: number } {
   if (!planes.length) return { up: new THREE.Vector3(0, 0, 1), score: 0 };
 
-  // Near-parallel normals describe the same direction; keep one of each family.
-  const candidates: THREE.Vector3[] = [];
+  // Group near-parallel normals: floor and ceiling are one family, and so are the two faces
+  // of a wall. Inliers accumulate across the family, which is the point -- a floor seen as
+  // two patches must not lose to a single wall.
+  const families: { normal: THREE.Vector3; inliers: number }[] = [];
   for (const plane of planes) {
-    if (!candidates.some((c) => Math.abs(plane.normal.dot(c)) > 0.8)) {
-      candidates.push(plane.normal.clone());
-    }
+    const family = families.find((f) => Math.abs(plane.normal.dot(f.normal)) > 0.8);
+    if (family) family.inliers += plane.inliers;
+    else families.push({ normal: plane.normal.clone(), inliers: plane.inliers });
   }
 
-  let best = candidates[0];
-  let bestScore = -1;
-  for (const candidate of candidates) {
-    const score = layerScore(points, candidate);
-    if (score > bestScore) {
-      bestScore = score;
-      best = candidate;
+  // Primary key is inlier mass. `layerScore` decides only between families within 25% of
+  // each other, where "which of these two big flat directions is the floor" is a real
+  // question and peak count is a reasonable answer to it.
+  const TIE = 0.75;
+  let best = families[0];
+  let bestPeaks = layerScore(points, families[0].normal);
+  for (const family of families.slice(1)) {
+    const peaks = layerScore(points, family.normal);
+    const comparable =
+      family.inliers >= best.inliers * TIE && best.inliers >= family.inliers * TIE;
+    const wins = comparable ? peaks > bestPeaks : family.inliers > best.inliers;
+    if (wins) {
+      best = family;
+      bestPeaks = peaks;
     }
   }
 
   // RANSAC hands back a normal with an arbitrary sign, so the same scene would otherwise
   // come out upside down on a different seed. Canonicalise on the largest component and let
   // the density test below decide which end is really the floor.
-  const up = best.clone().normalize();
+  const up = best.normal.clone().normalize();
   const largest = Math.abs(up.x) >= Math.abs(up.y) && Math.abs(up.x) >= Math.abs(up.z)
     ? up.x
     : Math.abs(up.y) >= Math.abs(up.z)
@@ -260,7 +291,7 @@ export function estimateUp(planes: Plane[], points: Float64Array): { up: THREE.V
       : up.z;
   if (largest < 0) up.negate();
 
-  return { up, score: bestScore };
+  return { up, score: bestPeaks };
 }
 
 /**
@@ -345,7 +376,7 @@ export function alignScene(cloud: SplatCloud, options: AlignOptions = {}): Align
     centers[i * 3 + 2] = v.z;
   }
 
-  const groundHeight = percentile(centers, count, 2, FLOOR_PERCENTILE);
+  const groundHeight = floorHeight(centers, count);
 
   return {
     matrix,
@@ -355,6 +386,26 @@ export function alignScene(cloud: SplatCloud, options: AlignOptions = {}): Align
     planes: planes.length,
     layerScore: score,
   };
+}
+
+/**
+ * The height of the floor, which is NOT the bottom of the point cloud.
+ *
+ * A percentile of z looks like a reasonable floor and is not one. Splat training leaves
+ * floaters below the real floor -- through it, under it, out in the void beneath the room --
+ * and a percentile walks straight down into them. On the kitchen capture the 2nd percentile
+ * sits at -1.62 m while the floor the room is actually standing on is at -0.79 m: the physics
+ * ground plane was 83 cm BELOW the floor you can see, so a physicalised object fell through
+ * the visible floor and landed in mid-air.
+ *
+ * The lowest large horizontal patch is the floor. That is what `horizontalSurfaces` already
+ * finds, by histogram peak and occupied area, and it is immune to floaters because a scatter
+ * of stray splats has no area. The percentile survives only as the fallback for a capture
+ * flat enough that no patch is found at all.
+ */
+export function floorHeight(centers: Float32Array, count: number): number {
+  const floor = horizontalSurfaces(centers, count, {}).find((s) => s.isFloor);
+  return floor ? floor.height : percentile(centers, count, 2, FLOOR_PERCENTILE);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -491,28 +542,45 @@ export function roomObstacles(
 ): Obstacle[] {
   const surfaces = horizontalSurfaces(centers, count, {});
   const floor = surfaces.find((s) => s.isFloor);
-  const ceiling = surfaces.length > 1 ? surfaces[surfaces.length - 1].height : null;
-  const height = ceiling && ceiling > groundHeight + 1 ? ceiling - groundHeight : ceilingFallback;
 
-  let cx: number;
-  let cy: number;
-  let hx: number;
-  let hy: number;
+  // The room's own extent, robustly. The walls must enclose EVERYTHING, so this is taken over
+  // the whole cloud and not over the floor patch.
+  //
+  // Using the floor patch was the bug: a floor is only reconstructed where the scanner saw
+  // bare floor, so it stops at the kick boards and misses everything the units stand on. On
+  // the kitchen capture that patch was 2.06 x 1.29 m inside a room 2.81 x 2.51 m -- the walls
+  // were built 64 cm INSIDE the far counter, cutting through it, and an object resting there
+  // was already outside its own room.
+  const px = (axis: 0 | 1 | 2, p: number) => {
+    const v = new Float32Array(count);
+    for (let i = 0; i < count; i++) v[i] = centers[i * 3 + axis];
+    v.sort();
+    return v[Math.min(count - 1, Math.max(0, Math.floor(count * p)))];
+  };
+  // 2nd/98th rather than min/max, because floaters sit outside the room in every direction.
+  let cx = (px(0, 0.02) + px(0, 0.98)) / 2;
+  let cy = (px(1, 0.02) + px(1, 0.98)) / 2;
+  let hx = (px(0, 0.98) - px(0, 0.02)) / 2;
+  let hy = (px(1, 0.98) - px(1, 0.02)) / 2;
+
+  // Never tighter than the floor: whatever the percentiles say, the room contains its floor.
   if (floor) {
-    [cx, cy] = floor.centre;
-    [hx, hy] = floor.halfExtent;
-  } else {
-    const px = (axis: 0 | 1, p: number) => {
-      const v = new Float32Array(count);
-      for (let i = 0; i < count; i++) v[i] = centers[i * 3 + axis];
-      v.sort();
-      return v[Math.floor(count * p)];
-    };
-    cx = (px(0, 0.02) + px(0, 0.98)) / 2;
-    cy = (px(1, 0.02) + px(1, 0.98)) / 2;
-    hx = (px(0, 0.98) - px(0, 0.02)) / 2;
-    hy = (px(1, 0.98) - px(1, 0.02)) / 2;
+    const loX = Math.min(cx - hx, floor.centre[0] - floor.halfExtent[0]);
+    const hiX = Math.max(cx + hx, floor.centre[0] + floor.halfExtent[0]);
+    const loY = Math.min(cy - hy, floor.centre[1] - floor.halfExtent[1]);
+    const hiY = Math.max(cy + hy, floor.centre[1] + floor.halfExtent[1]);
+    cx = (loX + hiX) / 2;
+    hx = (hiX - loX) / 2;
+    cy = (loY + hiY) / 2;
+    hy = (hiY - loY) / 2;
   }
+
+  // Tall enough to contain the room. A detected ceiling is better than a guess, but an upper
+  // cabinet is a surface too and is not a ceiling, so the cloud's own top wins if it is
+  // higher -- walls that stop below the tallest thing in the room let objects out over them.
+  const ceiling = surfaces.length > 1 ? surfaces[surfaces.length - 1].height : null;
+  const top = Math.max(px(2, 0.98), ceiling ?? -Infinity, groundHeight + ceilingFallback);
+  const height = top - groundHeight;
 
   const obstacles: Obstacle[] = [];
 
