@@ -129,14 +129,17 @@ describe("the full path: select, describe, bind, move", () => {
     const staticMesh = new SplatMesh({ packedSplats: cloud.packed, editable: true });
     await staticMesh.initialized;
 
-    const bound = bind(cloud, indices, frame, object, staticMesh);
+    const bound = bind(cloud, indices, frame, object);
 
     expect(bound.parts).toHaveLength(object.parts.length);
     const totalBound = bound.parts.reduce((n, p) => n + p.splatCount, 0);
     expect(totalBound, "every selected splat must belong to exactly one part").toBe(
       indices.length,
     );
-    expect(bound.hole.parent, "the hole must be attached to the static mesh").toBe(staticMesh);
+    // Removal is EXACT: the remainder is the original cloud minus precisely these splats,
+    // not minus a box that also swallowed the floor and the wall behind.
+    expect(bound.removed).toHaveLength(indices.length);
+    expect(bound.remaining.numSplats).toBe(cloud.count - indices.length);
 
     // 6. Move. The mesh transform IS the pose.
     const shell = bound.parts[0];
@@ -153,7 +156,7 @@ describe("the full path: select, describe, bind, move", () => {
     expect(pose!.position[2]).toBeLessThan(startZ);
 
     service.stop();
-    unbind(bound, staticMesh, new THREE.Object3D());
+    unbind(bound, new THREE.Object3D());
   });
 
   it("binds an articulated object's parts separately", async () => {
@@ -192,7 +195,7 @@ describe("the full path: select, describe, bind, move", () => {
 
     const staticMesh = new SplatMesh({ packedSplats: cloud.packed, editable: true });
     await staticMesh.initialized;
-    const bound = bind(cloud, indices, frame, object, staticMesh);
+    const bound = bind(cloud, indices, frame, object);
 
     // Shell and door both get splats, and between them they get all of them.
     const counts = Object.fromEntries(bound.parts.map((p) => [p.bodyName, p.splatCount]));
@@ -248,7 +251,7 @@ describe("the full path: select, describe, bind, move", () => {
     const staticMesh = new SplatMesh({ packedSplats: cloud.packed, editable: true });
     await staticMesh.initialized;
 
-    const bound = bind(cloud, indices, frame, object, staticMesh);
+    const bound = bind(cloud, indices, frame, object);
     expect(bound.parts).toHaveLength(2);
     expect(bound.parts.reduce((n, p) => n + p.splatCount, 0)).toBe(indices.length);
   });

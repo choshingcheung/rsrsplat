@@ -11,6 +11,7 @@
  */
 
 import {
+  PackedSplats,
   SparkRenderer,
   SplatEdit,
   SplatEditRgbaBlendMode,
@@ -431,18 +432,16 @@ export class SceneController {
   private onCreated(object: PhysicsObject): void {
     if (!this.cloud || !this.staticMesh || !this.selectedIndices || !this.selectedFrame) return;
 
-    const bound = bind(
-      this.cloud,
-      this.selectedIndices,
-      this.selectedFrame,
-      object,
-      this.staticMesh,
-    );
+    const bound = bind(this.cloud, this.selectedIndices, this.selectedFrame, object);
     for (const part of bound.parts) {
       this.scene.add(part.mesh);
       this.meshFor.set(part.bodyName, part.mesh);
     }
     this.bound.set(object.id, bound);
+
+    // The static scene, minus exactly this object's splats. `bind` produced it in the same
+    // pass it used to gather the parts, so this costs nothing beyond swapping the mesh.
+    this.replaceStatic(bound.remaining);
 
     // The selection has become an object, so it stops being a selection.
     this.clearHighlight();
@@ -455,13 +454,55 @@ export class SceneController {
 
   private unbindOne(objectId: string): void {
     const bound = this.bound.get(objectId);
-    if (!bound || !this.staticMesh) return;
+    if (!bound) return;
     for (const part of bound.parts) {
       this.meshFor.delete(part.bodyName);
       this.targets.delete(part.bodyName);
     }
-    unbind(bound, this.staticMesh, this.scene);
+    unbind(bound, this.scene);
     this.bound.delete(objectId);
+    // Removing an object puts its splats back, so the static cloud is rebuilt from the
+    // original minus whatever is still bound. Only on remove, which is rare.
+    this.rebuildStatic();
+  }
+
+  /** Swap in a new static cloud, disposing the old mesh. */
+  private replaceStatic(packed: PackedSplats): void {
+    const mesh = new SplatMesh({ packedSplats: packed, editable: true });
+    void mesh.initialized.then(() => {
+      if (this.staticMesh) {
+        this.scene.remove(this.staticMesh);
+        this.staticMesh.dispose();
+      }
+      this.scene.add(mesh);
+      this.staticMesh = mesh;
+    });
+  }
+
+  /** The original cloud minus every splat currently owned by a bound object. */
+  private rebuildStatic(): void {
+    if (!this.cloud) return;
+    const removed = new Uint8Array(this.cloud.count);
+    for (const bound of this.bound.values()) {
+      for (const i of bound.removed) removed[i] = 1;
+    }
+
+    const packed = new PackedSplats();
+    const centre = new THREE.Vector3();
+    const scales = new THREE.Vector3();
+    const rotation = new THREE.Quaternion();
+    const colour = new THREE.Color();
+    this.cloud.packed.forEachSplat((i, c, sc, q, opacity, col) => {
+      if (removed[i]) return;
+      packed.pushSplat(
+        centre.copy(c),
+        scales.copy(sc),
+        rotation.copy(q),
+        opacity,
+        colour.copy(col),
+      );
+    });
+    this.replaceStatic(packed);
   }
 
   private clearBindings(): void {

@@ -25,7 +25,7 @@
  *   position it started from.
  */
 
-import { PackedSplats, SplatEdit, SplatEditRgbaBlendMode, SplatEditSdf, SplatEditSdfType, SplatMesh } from "@sparkjsdev/spark";
+import { PackedSplats, SplatMesh } from "@sparkjsdev/spark";
 import * as THREE from "three";
 
 import { toThree } from "../net/quaternion";
@@ -43,8 +43,18 @@ export interface BoundPart {
 export interface BoundObject {
   id: string;
   parts: BoundPart[];
-  /** The box cut out of the static scene, so the splats are not drawn twice. */
-  hole: SplatEdit;
+  /**
+   * The static scene with this object's splats removed — EXACTLY those splats, by index.
+   *
+   * The first version cut a box-shaped hole with an SDF instead. A selection's oriented box
+   * contains the object plus the air around it, the floor under it and a slice of the wall
+   * behind, so what it removed was a rectangular void rather than an object-shaped one. That
+   * is the "not clean" removal: it was never removing the object, it was removing the
+   * object's bounding box.
+   */
+  remaining: PackedSplats;
+  /** Which splats left, so a later unbind can put them back. */
+  removed: Uint32Array;
 }
 
 /**
@@ -126,16 +136,17 @@ export function toBodyLocal(
 }
 
 /**
- * Build a movable splat mesh per part, and cut the object's splats out of the static scene.
+ * Build a movable splat mesh per part, and a static cloud with those splats removed.
  *
- * `staticMesh` must have been created with `editable: true`, or the hole cannot be cut.
+ * Both come out of ONE pass over the source. The pass has to happen anyway to gather each
+ * part's splats, so taking the remainder at the same time costs nothing — and it is what
+ * makes the removal exact rather than a box approximation.
  */
 export function bind(
   cloud: SplatCloud,
   indices: ArrayLike<number>,
   frame: MeasuredFrame,
   object: PhysicsObject,
-  staticMesh: SplatMesh,
 ): BoundObject {
   const owned = assignParts(cloud, indices, frame, object.parts);
   const byName = new Map(object.parts.map((p) => [p.bodyName, p]));
@@ -156,6 +167,8 @@ export function bind(
   // The inverse of each part's initial pose, to express its splats in the body's own frame.
   const inverse = order.map((bodyName) => inverseOf(byName.get(bodyName)!.initialPose));
 
+  const remaining = new PackedSplats();
+
   const centre = new THREE.Vector3();
   const scales = new THREE.Vector3();
   const rotation = new THREE.Quaternion();
@@ -163,7 +176,11 @@ export function bind(
 
   cloud.packed.forEachSplat((i, c, s, q, opacity, col) => {
     const slot = partOf[i];
-    if (slot < 0) return;
+    if (slot < 0) {
+      // Everything the object did not claim stays in the room, untouched.
+      remaining.pushSplat(centre.copy(c), scales.copy(s), rotation.copy(q), opacity, colour.copy(col));
+      return;
+    }
 
     toBodyLocal(c, q, inverse[slot], centre, rotation);
     packedFor[slot].pushSplat(centre, scales.copy(s), rotation, opacity, colour.copy(col));
@@ -177,35 +194,16 @@ export function bind(
     return { bodyName, mesh, splatCount: counts[slot] };
   });
 
-  return { id: object.id, parts, hole: cutHole(frame, staticMesh) };
+  return {
+    id: object.id,
+    parts,
+    remaining,
+    removed: Uint32Array.from(indices),
+  };
 }
 
-/**
- * Zero the opacity of everything inside the selection's box, on the static mesh.
- *
- * A GPU-side edit rather than rebuilding the cloud: re-packing 1.5M splats takes a second or
- * more, which mid-interaction is the difference between an object becoming physical and the
- * app hanging.
- *
- * The hole stays where the object started, which is correct — the scan has no data behind an
- * object anyway, so what is revealed was never there.
- */
-function cutHole(frame: MeasuredFrame, staticMesh: SplatMesh): SplatEdit {
-  const edit = new SplatEdit({ rgbaBlendMode: SplatEditRgbaBlendMode.MULTIPLY, softEdge: 0 });
-  const box = new SplatEditSdf({ type: SplatEditSdfType.BOX, opacity: 0 });
-
-  box.position.copy(frame.centroid);
-  box.quaternion.copy(orientationOf(frame));
-  box.scale.copy(frame.halfExtents);
-
-  edit.addSdf(box);
-  staticMesh.add(edit);
-  return edit;
-}
-
-/** Undo a binding: put the splats back and remove the movable meshes. */
-export function unbind(bound: BoundObject, staticMesh: SplatMesh, scene: THREE.Object3D): void {
-  staticMesh.remove(bound.hole);
+/** Take a bound object's meshes out of the scene. The static cloud is rebuilt by the caller. */
+export function unbind(bound: BoundObject, scene: THREE.Object3D): void {
   for (const part of bound.parts) {
     scene.remove(part.mesh);
     part.mesh.dispose();
