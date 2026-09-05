@@ -1,0 +1,13 @@
+{
+  "operation_id": "op_gen_7c1d4b2a",
+  "done": false,
+  "error": null,
+  "metadata": {
+    "progress": {
+      "status": "IN_PROGRESS",
+      "description": "World generation in progress"
+    },
+    "world_id": "9f1c2a44-0c3f-4a2e-9b77-2f0d6c5e1a01"
+  },
+  "response": null
+}

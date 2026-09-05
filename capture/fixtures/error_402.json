@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "INSUFFICIENT_CREDITS",
+    "message": "not enough credits for marble-1.1"
+  }
+}

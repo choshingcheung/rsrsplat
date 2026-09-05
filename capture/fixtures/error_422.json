@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "world_prompt.type must be one of text, image, video"
+  }
+}

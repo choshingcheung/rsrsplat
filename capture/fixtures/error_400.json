@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "INVALID_ARGUMENT",
+    "message": "image_prompt.uri could not be fetched"
+  }
+}

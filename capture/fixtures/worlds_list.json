@@ -1,0 +1,11 @@
+{
+  "worlds": [
+    {
+      "display_name": "kitchen",
+      "model": "marble-1.0-draft",
+      "created_at": "2026-09-05T13:20:14Z",
+      "world_id": "9f1c2a44-0c3f-4a2e-9b77-2f0d6c5e1a01"
+    }
+  ],
+  "next_page_token": null
+}

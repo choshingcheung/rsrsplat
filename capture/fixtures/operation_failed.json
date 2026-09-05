@@ -1,0 +1,15 @@
+{
+  "operation_id": "op_gen_7c1d4b2a",
+  "done": true,
+  "error": {
+    "code": "CONTENT_POLICY",
+    "message": "the image was refused by the content filter"
+  },
+  "metadata": {
+    "progress": {
+      "status": "FAILED"
+    },
+    "world_id": null
+  },
+  "response": null
+}

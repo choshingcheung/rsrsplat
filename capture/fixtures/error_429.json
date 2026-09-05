@@ -1,0 +1,6 @@
+{
+  "error": {
+    "code": "RATE_LIMITED",
+    "message": "too many generation starts, retry shortly"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "display_name": "kitchen",
+  "tags": [],
+  "model": "marble-1.0-draft",
+  "permission": "private",
+  "created_at": "2026-09-05T13:20:14Z",
+  "updated_at": "2026-09-05T13:25:02Z",
+  "world_marble_url": "https://marble.worldlabs.ai/world/9f1c2a44-0c3f-4a2e-9b77-2f0d6c5e1a01",
+  "world_prompt": {
+    "type": "image",
+    "text_prompt": "a domestic kitchen"
+  },
+  "assets": {
+    "splats": {
+      "spz_urls": {
+        "full_res": "https://cdn.marble.worldlabs.ai/x/full.spz"
+      },
+      "semantics_metadata": {
+        "metric_scale_factor": 1.8734,
+        "ground_plane_offset": 0.4162
+      }
+    },
+    "mesh": {
+      "collider_mesh_url": "https://cdn.marble.worldlabs.ai/x/collider.glb"
+    }
+  },
+  "world_id": "9f1c2a44-0c3f-4a2e-9b77-2f0d6c5e1a01"
+}
