@@ -17,6 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import bodyDrag from "../../../contract/fixtures/client/body.drag.json";
 import jointSet from "../../../contract/fixtures/client/joint.set.json";
 import meshAttach from "../../../contract/fixtures/client/mesh.attach.json";
 import objectPhysicalize from "../../../contract/fixtures/client/object.physicalize.json";
@@ -35,6 +36,7 @@ import {
   REGION_TESTS,
   SERVER_MESSAGE_TYPES,
   type Loose,
+  type BodyDrag,
   type JointSet,
   type MeshAttach,
   type ObjectCreated,
@@ -58,6 +60,7 @@ const CLIENT_FIXTURES = {
   "object.physicalize": objectPhysicalize satisfies Loose<ObjectPhysicalize>,
   "object.remove": objectRemove satisfies Loose<ObjectRemove>,
   "joint.set": jointSet satisfies Loose<JointSet>,
+  "body.drag": bodyDrag satisfies Loose<BodyDrag>,
   "sim.control": simControl satisfies Loose<SimControl>,
   "mesh.attach": meshAttach satisfies Loose<MeshAttach>,
 };
@@ -183,5 +186,15 @@ describe("joint.set", () => {
     // 62.5 is unambiguous -- a radian value inside a 0-90 degree range would be under 1.6.
     expect(jointSet.value).toBe(62.5);
     expect(jointSet.value).toBeGreaterThan(Math.PI / 2);
+  });
+});
+
+describe("body.drag", () => {
+  it("carries a point in the room, and null to release", () => {
+    // Null is the release, not a separate message. One verb, two states -- the alternative
+    // was body.grab/body.release and a state machine spanning the socket.
+    expect(bodyDrag.target).toHaveLength(3);
+    const released: Loose<BodyDrag> = { ...bodyDrag, target: null };
+    expect(released.target).toBeNull();
   });
 });

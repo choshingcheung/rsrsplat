@@ -280,6 +280,23 @@ class JointSet(Wire):
     value: float
 
 
+class BodyDrag(Wire):
+    """Drag a free body toward a point, or let go of it.
+
+    ``target`` of ``None`` releases. The body is pulled by a damped spring rather than
+    teleported, so it collides with things on the way and keeps the momentum it was given
+    when released -- which is what makes throwing something feel like throwing something.
+
+    Only meaningful for a ``free`` body. A fitted appliance ignores it; ``joint.set`` is how
+    its mechanism gets worked.
+    """
+
+    type: Literal["body.drag"] = "body.drag"
+    body_name: str = Field(alias="bodyName")
+    #: METRES, scene coordinates. ``None`` releases.
+    target: Vec3 | None = None
+
+
 class SimControl(Wire):
     type: Literal["sim.control"] = "sim.control"
     action: Literal["play", "pause", "reset"]
@@ -300,6 +317,7 @@ ClientMessage = Annotated[
         ObjectPhysicalize,
         ObjectRemove,
         JointSet,
+        BodyDrag,
         SimControl,
         MeshAttach,
     ],
@@ -356,6 +374,7 @@ __all__ = [
     "ClientMessage",
     "JointType",
     "Mat3",
+    "BodyDrag",
     "JointSet",
     "MeshAttach",
     "Obstacle",

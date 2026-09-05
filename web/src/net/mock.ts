@@ -60,6 +60,8 @@ interface Body {
   hingeAxis: Vec3;
   /** Driven by hand, so the swing-open animation leaves it alone. */
   held: boolean;
+  /** Where the cursor is pulling it, if anyone is holding it. */
+  dragTo: [number, number, number] | null;
   /** Where this body started, so reset can actually put it back. Both are needed: restoring
    *  the orientation alone leaves a crate wherever it had fallen to. */
   restPosition: [number, number, number];
@@ -112,6 +114,8 @@ export class MockService {
         return this.physicalize(message.selectionId, message.prompt);
       case "object.remove":
         return this.remove(message.objectId);
+      case "body.drag":
+        return this.dragBody(message.bodyName, message.target);
       case "joint.set":
         return this.setJoint(message.bodyName, message.value);
       case "sim.control":
@@ -183,6 +187,7 @@ export class MockService {
       hingeRange: null,
       hingeAxis: [0, 1, 0],
       held: false,
+      dragTo: null,
     };
     this.bodies.push(shell);
 
@@ -223,6 +228,7 @@ export class MockService {
         hingeRange: [0, Math.PI / 2],
         hingeAxis: [0, 1, 0],
         held: false,
+        dragTo: null,
       };
       this.bodies.push(door);
       parts.push({
@@ -252,6 +258,19 @@ export class MockService {
    * Matches the service: a held joint is pinned rather than servoed, so it goes exactly
    * where the slider says. See `Session.set_joint` for why.
    */
+  /**
+   * Pull a body toward a point, or let go.
+   *
+   * A damped spring, like the service. Not the same numbers and not the same solver, but
+   * the same shape of behaviour: it accelerates toward the cursor and keeps its momentum
+   * when released.
+   */
+  private dragBody(bodyName: string, target: [number, number, number] | null) {
+    const body = this.bodies.find((b) => b.name === bodyName);
+    if (!body?.free) return;
+    body.dragTo = target;
+  }
+
   private setJoint(bodyName: string, value: number) {
     const body = this.bodies.find((b) => b.name === bodyName);
     if (!body?.hingeRange) return;
@@ -276,6 +295,7 @@ export class MockService {
       for (const body of this.bodies) {
         body.position = [...body.restPosition];
         body.velocity = [0, 0, 0];
+        body.dragTo = null;
         body.angle = 0;
         body.held = false;
         body.orientation = body.restQuaternion;
@@ -294,7 +314,15 @@ export class MockService {
 
     for (let step = 0; step < perBroadcast; step++) {
       for (const body of this.bodies) {
-        if (body.free) {
+        if (body.free && body.dragTo) {
+          // Spring toward the cursor, carrying the body's weight so it tracks rather than
+          // hanging below. Gravity is skipped: the drag is holding it up.
+          for (let a = 0; a < 3; a++) {
+            const pull = (body.dragTo[a] - body.position[a]) * 60 - body.velocity[a] * 12;
+            body.velocity[a] += pull * TIMESTEP;
+            body.position[a] += body.velocity[a] * TIMESTEP;
+          }
+        } else if (body.free) {
           body.velocity[2] -= GRAVITY * TIMESTEP;
           body.position[0] += body.velocity[0] * TIMESTEP;
           body.position[1] += body.velocity[1] * TIMESTEP;

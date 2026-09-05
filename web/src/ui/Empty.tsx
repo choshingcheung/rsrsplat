@@ -60,7 +60,7 @@ export function Empty() {
         {fileName}
       </span>
       {/* The gesture, still visible once there is something to use it on. */}
-      <span className="tick">shift-drag to select</span>
+      <span className="tick">shift-drag to select · drag an object to throw it</span>
       {error ? (
         <span className="num" style={{ fontSize: "var(--size-read)", color: "var(--warn)" }}>
           {error}

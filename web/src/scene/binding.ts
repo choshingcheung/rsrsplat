@@ -188,7 +188,14 @@ export function bind(
   });
 
   const parts: BoundPart[] = order.map((bodyName, slot) => {
-    const mesh = new SplatMesh({ packedSplats: packedFor[slot] });
+    // raycastable, so a click can find which body it landed on. minRaycastOpacity keeps
+    // the near-transparent haze around a scanned object from catching the ray before the
+    // object itself does.
+    const mesh = new SplatMesh({
+      packedSplats: packedFor[slot],
+      raycastable: true,
+      minRaycastOpacity: 0.35,
+    });
     const pose = byName.get(bodyName)!.initialPose;
     applyPose(mesh, pose);
     return { bodyName, mesh, splatCount: counts[slot] };

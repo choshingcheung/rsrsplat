@@ -78,15 +78,30 @@ export function Viewport() {
     };
 
     const onDown = (event: PointerEvent) => {
-      if (!event.shiftKey || event.button !== 0) return;
+      if (event.button !== 0) return;
       const at = local(event);
-      anchor.current = at;
-      setBox({ left: at.x, top: at.y, width: 0, height: 0 });
-      controller.current?.beginDrag(at.x, at.y);
-      container.setPointerCapture(event.pointerId);
+
+      if (event.shiftKey) {
+        anchor.current = at;
+        setBox({ left: at.x, top: at.y, width: 0, height: 0 });
+        controller.current?.beginDrag(at.x, at.y);
+        container.setPointerCapture(event.pointerId);
+        return;
+      }
+
+      // No modifier: try to pick something up. Only succeeds if the ray lands on a free
+      // body, so a drag over empty room still orbits.
+      if (controller.current?.grab(at.x, at.y)) {
+        container.setPointerCapture(event.pointerId);
+      }
     };
 
     const onMove = (event: PointerEvent) => {
+      if (controller.current?.isGrabbing) {
+        const at = local(event);
+        controller.current.moveGrab(at.x, at.y);
+        return;
+      }
       if (!anchor.current) return;
       const at = local(event);
       const from = anchor.current;
@@ -100,6 +115,13 @@ export function Viewport() {
     };
 
     const onUp = (event: PointerEvent) => {
+      if (controller.current?.isGrabbing) {
+        controller.current.releaseGrab();
+        if (container.hasPointerCapture(event.pointerId)) {
+          container.releasePointerCapture(event.pointerId);
+        }
+        return;
+      }
       if (!anchor.current) return;
       anchor.current = null;
       setBox(null);

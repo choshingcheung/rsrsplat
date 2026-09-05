@@ -31,6 +31,7 @@ from pydantic import TypeAdapter, ValidationError
 from .mjcf.build import SchemaError
 from .mjcf.scene import SceneError
 from .protocol import (
+    BodyDrag,
     ClientMessage,
     JointSet,
     ObjectCreated,
@@ -116,6 +117,9 @@ class Connection:
             await self.on_physicalize(message)
         elif isinstance(message, ObjectRemove):
             await self.on_remove(message)
+        elif isinstance(message, BodyDrag):
+            if self.session is not None:
+                self.session.drag(message.body_name, message.target)
         elif isinstance(message, JointSet):
             if self.session is not None:
                 self.session.set_joint(message.body_name, message.value)

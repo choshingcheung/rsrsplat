@@ -39,6 +39,9 @@ export interface SceneState {
   hoverCount: number;
   dragging: boolean;
 
+  /** The body currently being held, so the interface can say so. */
+  grabbed: string | null;
+
   prompt: PromptState;
   objects: PhysicsObject[];
 
@@ -50,6 +53,7 @@ export interface SceneState {
   setTransport: (transport: "service" | "local") => void;
   setRunning: (running: boolean) => void;
   setDrag: (dragging: boolean, hoverCount: number) => void;
+  setGrabbed: (bodyName: string | null) => void;
   setPrompt: (prompt: PromptState) => void;
   addObject: (object: PhysicsObject) => void;
   removeObject: (id: string) => void;
@@ -68,6 +72,7 @@ const EMPTY = {
   running: true,
   hoverCount: 0,
   dragging: false,
+  grabbed: null,
   prompt: { kind: "idle" } as PromptState,
   objects: [] as PhysicsObject[],
 };
@@ -84,6 +89,7 @@ export const useScene = create<SceneState>((set) => ({
   setTransport: (transport) => set({ transport }),
   setRunning: (running) => set({ running }),
   setDrag: (dragging, hoverCount) => set({ dragging, hoverCount }),
+  setGrabbed: (grabbed) => set({ grabbed }),
   setPrompt: (prompt) => set({ prompt }),
   addObject: (object) =>
     set((s) => ({ objects: [...s.objects, object], prompt: { kind: "idle" } })),

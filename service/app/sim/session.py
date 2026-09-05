@@ -26,7 +26,13 @@ from typing import Any
 import mujoco
 import numpy as np
 
-from ..mjcf.scene import SceneObject, check_world, compile_scene, object_from_selection
+from ..mjcf.scene import (
+    GRAVITY,
+    SceneObject,
+    check_world,
+    compile_scene,
+    object_from_selection,
+)
 from ..protocol import (
     Obstacle,
     PhysicsObject,
@@ -52,6 +58,18 @@ TIMESTEP = 0.002
 #: physics in one blocking burst and stall the socket it is meant to be feeding.
 MAX_CATCHUP = 0.1
 
+#: Drag spring, per kilogram. Scaled by mass so a 200 kg crate and a 2 kg bottle follow the
+#: cursor at about the same rate; a fixed gain makes one sluggish and flings the other.
+DRAG_STIFFNESS = 60.0
+
+#: Near-critical damping, or a dragged body oscillates around the cursor and reads as
+#: elastic rather than heavy.
+DRAG_DAMPING = 12.0
+
+#: Newtons per kilogram. A cursor flicked across the room would otherwise launch an object
+#: faster than a 2 ms step can integrate, and it tunnels through the floor.
+DRAG_MAX_FORCE = 120.0
+
 
 @dataclass
 class Session:
@@ -69,6 +87,9 @@ class Session:
     #: Joints the user is driving, by body name, in wire units. Survives a rebuild, so
     #: physicalising a second object does not let a held door swing shut.
     held: dict[str, float] = field(default_factory=dict)
+
+    #: Bodies being dragged, by name, toward a point in scene coordinates.
+    dragging: dict[str, tuple[float, float, float]] = field(default_factory=dict)
     running: bool = True
     step_count: int = 0
 
@@ -240,6 +261,8 @@ class Session:
             return 0
         steps = int(min(seconds, MAX_CATCHUP) / TIMESTEP)
         for _ in range(steps):
+            if self.dragging:
+                self._apply_drags()
             mujoco.mj_step(self._model, self._data)
             # After the step, or gravity walks a held door shut between frames.
             if self.held:
@@ -280,6 +303,46 @@ class Session:
         mujoco.mj_forward(self._model, self._data)
         return True
 
+    def drag(self, body_name: str, target: tuple[float, float, float] | None) -> bool:
+        """Pull a body toward a point, or let go of it.
+
+        A damped spring, not a teleport. Teleporting is easier and wrong twice over: the
+        body passes through everything on the way, and it arrives with no velocity, so
+        letting go drops it straight down instead of throwing it. A spring makes the drag
+        itself physical -- shove a crate at a wall and it stops at the wall.
+        """
+        bid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        if bid < 0:
+            return False
+        if target is None:
+            self.dragging.pop(body_name, None)
+            self._data.xfrc_applied[bid] = 0.0
+        else:
+            self.dragging[body_name] = tuple(float(v) for v in target)
+        return True
+
+    def _apply_drags(self) -> None:
+        """A damped spring per dragged body, applied as force rather than position."""
+        for body_name, target in self.dragging.items():
+            bid = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+            if bid < 0:
+                continue
+            mass = max(float(self._model.body_mass[bid]), 1e-3)
+            offset = np.asarray(target) - self._data.xpos[bid]
+            velocity = self._data.cvel[bid][3:6]
+
+            # Carry the body's weight, so it tracks the cursor instead of hanging below it.
+            # Without this the spring balances gravity at k*offset = m*g, and every dragged
+            # object sits a fixed 16 cm under the pointer however carefully you aim.
+            weight = np.array([0.0, 0.0, mass * GRAVITY])
+            force = DRAG_STIFFNESS * mass * offset - DRAG_DAMPING * mass * velocity + weight
+            magnitude = float(np.linalg.norm(force))
+            if magnitude > DRAG_MAX_FORCE * mass:
+                force = force * (DRAG_MAX_FORCE * mass / magnitude)
+
+            self._data.xfrc_applied[bid][:3] = force
+            self._data.xfrc_applied[bid][3:] = 0.0
+
     def release_joint(self, body_name: str) -> None:
         """Let a joint move under physics again."""
         self.held.pop(body_name, None)
@@ -314,6 +377,7 @@ class Session:
         elif action == "reset":
             self.step_count = 0
             self.held.clear()
+            self.dragging.clear()
             mujoco.mj_resetData(self._model, self._data)
             mujoco.mj_forward(self._model, self._data)
         else:
@@ -342,4 +406,12 @@ def real_time_factor(session: Session, seconds: float = 1.0) -> float:
     return (steps * TIMESTEP) / elapsed if elapsed > 0 else float("inf")
 
 
-__all__ = ["MAX_CATCHUP", "TIMESTEP", "Session", "real_time_factor"]
+__all__ = [
+    "DRAG_DAMPING",
+    "DRAG_MAX_FORCE",
+    "DRAG_STIFFNESS",
+    "MAX_CATCHUP",
+    "TIMESTEP",
+    "Session",
+    "real_time_factor",
+]

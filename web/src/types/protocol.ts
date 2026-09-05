@@ -269,6 +269,23 @@ export interface JointSet {
   value: number;
 }
 
+/**
+ * Drag a free body toward a point, or let go of it.
+ *
+ * `target` null means release. The body is pulled by a damped spring rather than teleported,
+ * so it collides with things on the way and keeps the momentum you gave it when you let go —
+ * which is what makes throwing something feel like throwing something.
+ *
+ * Only meaningful for a `free` body. A fitted appliance ignores it; `joint.set` is how its
+ * mechanism gets worked.
+ */
+export interface BodyDrag {
+  type: "body.drag";
+  bodyName: string;
+  /** METRES, scene coordinates. Null releases. */
+  target: Vec3 | null;
+}
+
 export interface SimControl {
   type: "sim.control";
   action: "play" | "pause" | "reset";
@@ -287,6 +304,7 @@ export type ClientMessage =
   | ObjectPhysicalize
   | ObjectRemove
   | JointSet
+  | BodyDrag
   | SimControl
   | MeshAttach;
 
@@ -357,6 +375,7 @@ export const CLIENT_MESSAGE_TYPES = [
   "object.physicalize",
   "object.remove",
   "joint.set",
+  "body.drag",
   "sim.control",
   "mesh.attach",
 ] as const satisfies Exhaustive<readonly ClientMessage["type"][], ClientMessage["type"]>;

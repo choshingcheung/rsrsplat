@@ -1,0 +1,9 @@
+{
+  "type": "body.drag",
+  "bodyName": "obj_01__crate",
+  "target": [
+    1.24,
+    -0.31,
+    -0.86
+  ]
+}

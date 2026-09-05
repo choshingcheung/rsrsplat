@@ -118,6 +118,12 @@ CLIENT = {
         "bodyName": "obj_01__door",
         "value": 62.5,
     },
+    "body.drag": {
+        # Where the body is being pulled toward. null releases it.
+        "type": "body.drag",
+        "bodyName": "obj_01__crate",
+        "target": [1.24, -0.31, -0.86],
+    },
     "sim.control": {
         "type": "sim.control",
         "action": "play",

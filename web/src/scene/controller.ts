@@ -83,6 +83,12 @@ export class SceneController {
   private meshFor = new Map<string, THREE.Object3D>();
   private targets = new Map<string, PoseUpdate>();
 
+  /** Which bodies can be picked up. A fitted appliance is not one of them. */
+  private draggable = new Set<string>();
+  private grabbed: { bodyName: string; plane: THREE.Plane } | null = null;
+
+  private readonly raycaster = new THREE.Raycaster();
+
   private counter = 0;
 
   constructor(private container: HTMLDivElement) {
@@ -235,6 +241,79 @@ export class SceneController {
     this.controls.target.copy(centre);
     this.camera.position.set(centre.x, centre.y - radius * 1.6, centre.z + radius * 0.35);
     this.controls.update();
+  }
+
+  // -- grabbing -------------------------------------------------------------------------
+
+  /**
+   * Try to pick up whatever is under the cursor.
+   *
+   * Returns true if something was grabbed, in which case the caller must not orbit. A plain
+   * drag over empty room still orbits: grabbing takes no modifier because it only triggers
+   * when the ray actually lands on something that can be picked up, and needing a chord to
+   * touch an object you can see would be worse than the ambiguity it avoids.
+   */
+  grab(x: number, y: number): boolean {
+    if (!this.draggable.size) return false;
+
+    const hit = this.pickBody(x, y);
+    if (!hit || !this.draggable.has(hit.bodyName)) return false;
+
+    // Drag in the plane through the grab point facing the camera, so the object tracks the
+    // cursor without diving toward or away from the viewer.
+    const normal = new THREE.Vector3();
+    this.camera.getWorldDirection(normal);
+    this.grabbed = {
+      bodyName: hit.bodyName,
+      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.point),
+    };
+    this.controls.enabled = false;
+    useScene.getState().setGrabbed(hit.bodyName);
+    return true;
+  }
+
+  moveGrab(x: number, y: number): void {
+    if (!this.grabbed) return;
+    const at = this.onPlane(x, y, this.grabbed.plane);
+    if (at) this.emit({ type: "body.drag", bodyName: this.grabbed.bodyName, target: [at.x, at.y, at.z] });
+  }
+
+  releaseGrab(): void {
+    if (!this.grabbed) return;
+    // Null releases. The body keeps whatever momentum the drag gave it, which is what makes
+    // letting go a throw rather than a drop.
+    this.emit({ type: "body.drag", bodyName: this.grabbed.bodyName, target: null });
+    this.grabbed = null;
+    this.controls.enabled = true;
+    useScene.getState().setGrabbed(null);
+  }
+
+  get isGrabbing(): boolean {
+    return this.grabbed !== null;
+  }
+
+  /** Which bound body is under the cursor, if any. */
+  private pickBody(x: number, y: number): { bodyName: string; point: THREE.Vector3 } | null {
+    const { clientWidth: w, clientHeight: h } = this.container;
+    this.raycaster.setFromCamera(new THREE.Vector2((x / w) * 2 - 1, -((y / h) * 2 - 1)), this.camera);
+
+    const meshes = [...this.meshFor.entries()];
+    const hits = this.raycaster.intersectObjects(
+      meshes.map(([, mesh]) => mesh),
+      false,
+    );
+    if (!hits.length) return null;
+
+    const found = meshes.find(([, mesh]) => mesh === hits[0].object);
+    return found ? { bodyName: found[0], point: hits[0].point.clone() } : null;
+  }
+
+  /** Where the cursor lands on a plane in the scene. */
+  private onPlane(x: number, y: number, plane: THREE.Plane): THREE.Vector3 | null {
+    const { clientWidth: w, clientHeight: h } = this.container;
+    this.raycaster.setFromCamera(new THREE.Vector2((x / w) * 2 - 1, -((y / h) * 2 - 1)), this.camera);
+    const at = new THREE.Vector3();
+    return this.raycaster.ray.intersectPlane(plane, at) ? at : null;
   }
 
   // -- selection ------------------------------------------------------------------------
@@ -448,6 +527,11 @@ export class SceneController {
       this.scene.add(part.mesh);
       this.meshFor.set(part.bodyName, part.mesh);
     }
+    // Only a free body can be picked up. A plumbed-in dishwasher is worked with its joint
+    // sliders, and letting someone drag it across the kitchen would be a lie about it.
+    for (const part of object.parts) {
+      if (part.jointType === "free") this.draggable.add(part.bodyName);
+    }
     this.bound.set(object.id, bound);
 
     // The static scene, minus exactly this object's splats. `bind` produced it in the same
@@ -469,6 +553,7 @@ export class SceneController {
     for (const part of bound.parts) {
       this.meshFor.delete(part.bodyName);
       this.targets.delete(part.bodyName);
+      this.draggable.delete(part.bodyName);
     }
     unbind(bound, this.scene);
     this.bound.delete(objectId);

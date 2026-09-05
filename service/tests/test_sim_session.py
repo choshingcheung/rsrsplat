@@ -336,3 +336,123 @@ def test_driving_a_joint_that_does_not_exist_is_refused_not_crashed(session, sel
     session.physicalize("obj_01", load("dishwasher"), selection)
     assert session.set_joint("obj_01__nonsense", 10.0) is False
     assert session.joint_value("obj_01__nonsense") is None
+
+
+# ---- dragging a body -------------------------------------------------------------------------
+
+
+def dragging_crate(session, mass=10.0):
+    crate = dict(load("crate"), mass=mass)
+    session.physicalize("obj_01", crate, crate_selection(at=(0.0, 0.0, GROUND + 0.2)))
+    return "obj_01__crate"
+
+
+def test_a_dragged_body_follows_the_cursor(session):
+    name = dragging_crate(session)
+    session.drag(name, (1.5, 0.0, GROUND + 0.6))
+    for _ in range(20):
+        session.advance(MAX_CATCHUP)
+
+    pose = next(p for p in session.poses().poses if p.body_name == name)
+    assert pose.position[0] == pytest.approx(1.5, abs=0.25)
+    assert pose.position[2] > GROUND + 0.3, "it must be lifted, not dragged along the floor"
+
+
+def test_releasing_keeps_the_momentum_it_was_given(session):
+    """The reason it is a spring and not a teleport. Teleporting arrives with no velocity, so
+    letting go drops the object straight down instead of throwing it."""
+    name = dragging_crate(session)
+    session.drag(name, (2.0, 0.0, GROUND + 1.0))
+    # Two ticks, not six: measured mid-flight. After six it has arrived and settled, and a
+    # body at rest under the cursor tells you nothing about what release does.
+    for _ in range(2):
+        session.advance(MAX_CATCHUP)
+
+    moving = float(abs(session.data.qvel[:3]).max())
+    session.drag(name, None)
+    assert moving > 0.3, f"it should be travelling when released, not crawling ({moving:.3f})"
+
+    before = next(p for p in session.poses().poses if p.body_name == name).position[0]
+    session.advance(MAX_CATCHUP)
+    after = next(p for p in session.poses().poses if p.body_name == name).position[0]
+    assert after > before, "released, it carries on rather than stopping dead"
+
+
+def test_a_released_body_falls_again(session):
+    name = dragging_crate(session)
+    session.drag(name, (0.0, 0.0, GROUND + 1.5))
+    for _ in range(20):
+        session.advance(MAX_CATCHUP)
+    lifted = next(p for p in session.poses().poses if p.body_name == name).position[2]
+
+    session.drag(name, None)
+    for _ in range(40):
+        session.advance(MAX_CATCHUP)
+    landed = next(p for p in session.poses().poses if p.body_name == name).position[2]
+
+    assert lifted > GROUND + 1.0
+    assert landed < lifted - 0.5, "let go, it falls"
+
+
+def test_a_heavy_and_a_light_body_follow_at_a_similar_rate(session):
+    """Stiffness scales with mass. A fixed gain would leave a wardrobe crawling after the
+    cursor while a mug flies off the screen."""
+    positions = {}
+    for mass in (2.0, 200.0):
+        s = Session(world=session.world)
+        crate = dict(load("crate"), mass=mass)
+        s.physicalize("obj_01", crate, crate_selection(at=(0.0, 0.0, GROUND + 0.2)))
+        s.drag("obj_01__crate", (1.0, 0.0, GROUND + 0.5))
+        for _ in range(10):
+            s.advance(MAX_CATCHUP)
+        positions[mass] = next(
+            p for p in s.poses().poses if p.body_name == "obj_01__crate"
+        ).position[0]
+
+    assert positions[2.0] == pytest.approx(positions[200.0], abs=0.3)
+
+
+def test_a_dragged_body_is_stopped_by_the_room(session):
+    """A drag applies force, so the body collides on the way. Teleporting would put it
+    through the wall and out of the scan."""
+    from app.protocol import Obstacle
+
+    wall = Obstacle(
+        id="wall_xhi", kind="wall",
+        position=(1.0, 0.0, GROUND + 1.0), halfExtents=(0.05, 2.0, 1.0),
+    )
+    s = Session(world=session.world, obstacles=(wall,))
+    crate = dict(load("crate"), mass=5.0)
+    s.physicalize("obj_01", crate, crate_selection(at=(0.0, 0.0, GROUND + 0.2)))
+
+    s.drag("obj_01__crate", (3.0, 0.0, GROUND + 0.3))  # straight through the wall
+    for _ in range(40):
+        s.advance(MAX_CATCHUP)
+
+    x = next(p for p in s.poses().poses if p.body_name == "obj_01__crate").position[0]
+    assert x < 1.0, f"the drag pulled it through the wall, to x={x:.3f}"
+
+
+def test_dragging_something_that_does_not_exist_is_refused(session):
+    dragging_crate(session)
+    assert session.drag("obj_01__nothing", (0.0, 0.0, 0.0)) is False
+
+
+def test_reset_lets_go_of_everything(session):
+    name = dragging_crate(session)
+    session.drag(name, (2.0, 0.0, GROUND + 1.0))
+    session.control("reset")
+    assert session.dragging == {}
+
+
+def test_a_dragged_body_tracks_the_cursor_rather_than_hanging_below_it(session):
+    """The spring carries the body's weight. Without that it settles where k*offset = m*g,
+    which is a fixed 16 cm under the pointer however carefully you aim."""
+    name = dragging_crate(session)
+    target = (0.6, 0.0, GROUND + 1.0)
+    session.drag(name, target)
+    for _ in range(25):
+        session.advance(MAX_CATCHUP)
+
+    pose = next(p for p in session.poses().poses if p.body_name == name)
+    assert pose.position[2] == pytest.approx(target[2], abs=0.05)
