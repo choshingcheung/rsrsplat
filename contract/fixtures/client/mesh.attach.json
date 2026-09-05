@@ -1,0 +1,5 @@
+{
+  "type": "mesh.attach",
+  "objectId": "obj_01",
+  "glbUrl": "blob:http://localhost:5173/6f1b0c9a-dishwasher"
+}

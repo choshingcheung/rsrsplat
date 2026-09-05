@@ -1,0 +1,39 @@
+# --- secrets ---
+.env
+.env.local
+*credentials*
+*.pem
+id_rsa
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- node ---
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+
+# --- large binaries: never in git, reference by path ---
+*.ply
+*.glb
+*.gltf
+*.splat
+*.ksplat
+*.spz
+captures/
+outputs/
+checkpoints/
+
+# --- os / editor ---
+.DS_Store
+Thumbs.db
+*.swp

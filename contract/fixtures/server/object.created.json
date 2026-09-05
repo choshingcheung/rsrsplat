@@ -1,0 +1,55 @@
+{
+  "type": "object.created",
+  "object": {
+    "id": "obj_01",
+    "label": "dishwasher",
+    "selectionId": "sel_01",
+    "massKg": 45.0,
+    "friction": 0.8,
+    "parts": [
+      {
+        "bodyName": "dishwasher_shell",
+        "jointType": "fixed",
+        "range": null,
+        "splatSubset": "all",
+        "initialPose": {
+          "bodyName": "dishwasher_shell",
+          "position": [
+            1.2,
+            -0.4,
+            -0.995
+          ],
+          "orientation": [
+            0.9659258262890683,
+            0.0,
+            0.0,
+            0.25881904510252074
+          ]
+        }
+      },
+      {
+        "bodyName": "dishwasher_door",
+        "jointType": "hinge",
+        "range": [
+          0.0,
+          90.0
+        ],
+        "splatSubset": "front_lower",
+        "initialPose": {
+          "bodyName": "dishwasher_door",
+          "position": [
+            1.05,
+            -0.1401923788646684,
+            -1.42
+          ],
+          "orientation": [
+            0.9659258262890683,
+            0.0,
+            0.0,
+            0.25881904510252074
+          ]
+        }
+      }
+    ]
+  }
+}

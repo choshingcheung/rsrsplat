@@ -1,0 +1,5 @@
+{
+  "type": "object.failed",
+  "selectionId": "sel_02",
+  "reason": "hinge range of 270 degrees is implausible for a door; expected 0 to 180"
+}

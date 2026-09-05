@@ -1,0 +1,5 @@
+{
+  "type": "sim.status",
+  "running": true,
+  "stepCount": 4000
+}

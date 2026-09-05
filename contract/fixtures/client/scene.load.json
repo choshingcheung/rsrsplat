@@ -1,0 +1,14 @@
+{
+  "type": "scene.load",
+  "splatId": "playroom_7000",
+  "splatCount": 1543280,
+  "world": {
+    "up": [
+      0.0,
+      0.0,
+      1.0
+    ],
+    "groundHeight": -1.42,
+    "sceneScale": 1.0
+  }
+}
