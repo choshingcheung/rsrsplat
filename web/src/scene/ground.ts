@@ -6,19 +6,32 @@
  * this because it owns the Gaussians — see DECISIONS.md — and the service validates the
  * result rather than trusting it.
  *
- * **This is the crude version, and it is honest about that.** The prototype's `ground.py`
- * derives up properly: RANSAC several planes, then choose between them by how LAYERED the
- * scene is along each candidate normal. A room stacks floors, ceilings, tabletops and
- * shelves along up, and stacks almost nothing along a wall normal — measured at 16 sharp
- * layers along up against 4 along the wall on the playroom capture. It also records two
- * plausible rules that both FAIL there: the single largest plane is a wall (18.8% of
- * splats), and so is the largest parallel family, because one enormous wall outweighs four
- * smaller horizontal ones.
+ * **Up has to be derived, not guessed from a list of conventions.** The first version here
+ * histogrammed along x, y and z and took the most layered of the three. On the playroom
+ * capture that picks x, and the room comes out on its side — because a COLMAP frame is not a
+ * rotation of any standard convention, so the true up is oblique to all three axes. The
+ * prototype found the same thing and said so: *"none of identity, opencv_to_zup or
+ * yup_to_zup produced a clean floor."*
  *
- * What is implemented here is the layer score, which is the part that actually decided it,
- * applied to three axis candidates rather than to RANSAC planes. That is enough for a
- * capture whose frame is a rotation of the usual conventions, and not enough for an
- * arbitrary COLMAP frame. Porting the plane fitting is the upgrade path.
+ * So, ported from `akitech/splat` `src/ground.py`:
+ *
+ * 1. **Sequential RANSAC** for the biggest planes — floors, ceilings, walls, tabletops.
+ * 2. **Choose between their normals by layer score**: project every splat onto a candidate
+ *    normal and count sharp peaks. Up produces many, because floors, ceilings, tabletops and
+ *    shelves all stack along it; a wall normal produces few, because a room has only one
+ *    opposing pair of walls in any direction. Measured on this capture at 16 layers along up
+ *    against 4 along the wall normal.
+ * 3. **Sign it by density.** A floor is the denser extreme: objects collect on it and a
+ *    capture observes it closely, while a ceiling is flat and featureless. 34.7% of splats in
+ *    the floor's band against 14.8% in the ceiling's.
+ *
+ * Two rules that sound right and both FAIL here, recorded so nobody reaches for them again:
+ * the single largest plane is a **wall** (18.8% of splats), and so is the largest parallel
+ * family, because one enormous wall outweighs four smaller horizontal ones.
+ *
+ * Gravity is genuinely not recoverable from a point cloud — real capture pipelines take it
+ * from the device's IMU. Step 3 is therefore a proposal, and `alignScene(cloud, {flipUp})`
+ * overrides it.
  */
 
 import * as THREE from "three";
@@ -28,31 +41,166 @@ import type { SplatCloud } from "./splats";
 /** A domestic room, floor to ceiling. What the scale is fitted against. */
 export const ROOM_HEIGHT_M = 2.6;
 
-/** Splats below this percentile are treated as strays rather than as the floor. */
+/** Splats below this percentile are strays, not the floor. */
 const FLOOR_PERCENTILE = 0.5;
 
+/** How many splats the plane fitting looks at. 1.5M would be minutes; this is under a second. */
+const SAMPLE = 40_000;
+
+export interface Plane {
+  normal: THREE.Vector3;
+  offset: number;
+  inliers: number;
+}
+
 export interface Alignment {
-  /** Applied to the cloud's centres and to the render mesh, so both agree. */
   matrix: THREE.Matrix4;
   up: THREE.Vector3;
   /** Where the floor is, in the aligned frame. Rarely zero. */
   groundHeight: number;
-  /** What the capture was scaled by to reach metres. Reported, not sent. */
   appliedScale: number;
+  /** What the fit found, for a readout — and so a wrong answer is inspectable. */
+  planes: number;
+  layerScore: number;
+}
+
+/** A deterministic sample, so the same capture aligns the same way twice. */
+function sample(centers: Float32Array, count: number, take = SAMPLE): Float64Array {
+  const stride = Math.max(1, Math.floor(count / take));
+  const n = Math.floor(count / stride);
+  const out = new Float64Array(n * 3);
+  for (let k = 0; k < n; k++) {
+    const i = k * stride;
+    out[k * 3] = centers[i * 3];
+    out[k * 3 + 1] = centers[i * 3 + 1];
+    out[k * 3 + 2] = centers[i * 3 + 2];
+  }
+  return out;
+}
+
+/** Mulberry32. Seeded so plane fitting is reproducible; RANSAC on a clock is not. */
+function rng(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
 /**
- * How layered the cloud is along `axis`: the number of sharp peaks in its histogram.
+ * Sequential RANSAC: fit the biggest plane, drop its inliers, repeat.
  *
- * The measurement that picks up. Floors, ceilings, tabletops and shelves all stack along
- * up, producing many spikes; a room has only one opposing pair of walls in any horizontal
- * direction, producing few.
+ * `tol` is in the capture's own arbitrary units, so it is derived from the cloud's extent
+ * rather than fixed — a tolerance in metres means nothing before the scale is known.
  */
-export function layerScore(centers: Float32Array, count: number, axis: 0 | 1 | 2, bins = 200): number {
+export function findPlanes(points: Float64Array, count = 6, iterations = 300, seed = 1): Plane[] {
+  const random = rng(seed);
+  let remaining = points;
+  const planes: Plane[] = [];
+
+  // A half-percent of the cloud's own span. Thick enough to catch a real surface, thin
+  // enough not to swallow the room.
   let lo = Infinity;
   let hi = -Infinity;
-  for (let i = 0; i < count; i++) {
-    const v = centers[i * 3 + axis];
+  for (let i = 0; i < points.length; i++) {
+    if (points[i] < lo) lo = points[i];
+    if (points[i] > hi) hi = points[i];
+  }
+  const tol = (hi - lo) * 0.005;
+
+  for (let p = 0; p < count; p++) {
+    const n = remaining.length / 3;
+    if (n < 200) break;
+
+    let bestNormal: [number, number, number] | null = null;
+    let bestOffset = 0;
+    let bestHits = 0;
+
+    for (let it = 0; it < iterations; it++) {
+      const ia = Math.floor(random() * n) * 3;
+      const ib = Math.floor(random() * n) * 3;
+      const ic = Math.floor(random() * n) * 3;
+
+      const abx = remaining[ib] - remaining[ia];
+      const aby = remaining[ib + 1] - remaining[ia + 1];
+      const abz = remaining[ib + 2] - remaining[ia + 2];
+      const acx = remaining[ic] - remaining[ia];
+      const acy = remaining[ic + 1] - remaining[ia + 1];
+      const acz = remaining[ic + 2] - remaining[ia + 2];
+
+      let nx = aby * acz - abz * acy;
+      let ny = abz * acx - abx * acz;
+      let nz = abx * acy - aby * acx;
+      const len = Math.hypot(nx, ny, nz);
+      if (len < 1e-9) continue;
+      nx /= len;
+      ny /= len;
+      nz /= len;
+      const d = -(nx * remaining[ia] + ny * remaining[ia + 1] + nz * remaining[ia + 2]);
+
+      let hits = 0;
+      for (let k = 0; k < n; k++) {
+        const j = k * 3;
+        if (
+          Math.abs(nx * remaining[j] + ny * remaining[j + 1] + nz * remaining[j + 2] + d) < tol
+        ) {
+          hits += 1;
+        }
+      }
+      if (hits > bestHits) {
+        bestHits = hits;
+        bestNormal = [nx, ny, nz];
+        bestOffset = d;
+      }
+    }
+
+    if (!bestNormal || bestHits < 100) break;
+    planes.push({
+      normal: new THREE.Vector3(...bestNormal),
+      offset: bestOffset,
+      inliers: bestHits,
+    });
+
+    // Drop this plane's inliers and look for the next-biggest surface.
+    const kept = new Float64Array((n - bestHits) * 3);
+    let at = 0;
+    for (let k = 0; k < n; k++) {
+      const j = k * 3;
+      const distance =
+        bestNormal[0] * remaining[j] +
+        bestNormal[1] * remaining[j + 1] +
+        bestNormal[2] * remaining[j + 2] +
+        bestOffset;
+      if (Math.abs(distance) >= tol) {
+        kept[at++] = remaining[j];
+        kept[at++] = remaining[j + 1];
+        kept[at++] = remaining[j + 2];
+      }
+    }
+    remaining = kept.subarray(0, at);
+  }
+
+  return planes;
+}
+
+/**
+ * How layered the cloud is along `normal`: the number of sharp peaks in its histogram.
+ *
+ * The measurement that picks up. A wall normal gives a broad, featureless spread; up gives a
+ * comb of spikes, one per horizontal surface in the room.
+ */
+export function layerScore(points: Float64Array, normal: THREE.Vector3, bins = 200): number {
+  const n = points.length / 3;
+  let lo = Infinity;
+  let hi = -Infinity;
+  const projected = new Float64Array(n);
+
+  for (let k = 0; k < n; k++) {
+    const j = k * 3;
+    const v = normal.x * points[j] + normal.y * points[j + 1] + normal.z * points[j + 2];
+    projected[k] = v;
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
@@ -60,24 +208,82 @@ export function layerScore(centers: Float32Array, count: number, axis: 0 | 1 | 2
 
   const histogram = new Float64Array(bins);
   const width = (hi - lo) / bins;
-  for (let i = 0; i < count; i++) {
-    const bin = Math.min(bins - 1, Math.floor((centers[i * 3 + axis] - lo) / width));
-    histogram[bin] += 1;
+  for (let k = 0; k < n; k++) {
+    histogram[Math.min(bins - 1, Math.floor((projected[k] - lo) / width))] += 1;
   }
 
-  const mean = count / bins;
+  const mean = n / bins;
   let peaks = 0;
   for (let b = 1; b < bins - 1; b++) {
-    // A sharp peak: well above average, and above both neighbours. "Sharp" is the point —
-    // a broad bulge is a wall seen edge-on, a spike is a surface.
-    if (histogram[b] > mean * 2.5 && histogram[b] > histogram[b - 1] && histogram[b] >= histogram[b + 1]) {
+    if (
+      histogram[b] > mean * 2.5 &&
+      histogram[b] > histogram[b - 1] &&
+      histogram[b] >= histogram[b + 1]
+    ) {
       peaks += 1;
     }
   }
   return peaks;
 }
 
-/** Percentile of one axis. Sorting a copy, because the caller still needs the original. */
+/** Which way is up, from how layered the scene is along each candidate plane normal. */
+export function estimateUp(planes: Plane[], points: Float64Array): { up: THREE.Vector3; score: number } {
+  if (!planes.length) return { up: new THREE.Vector3(0, 0, 1), score: 0 };
+
+  // Near-parallel normals describe the same direction; keep one of each family.
+  const candidates: THREE.Vector3[] = [];
+  for (const plane of planes) {
+    if (!candidates.some((c) => Math.abs(plane.normal.dot(c)) > 0.8)) {
+      candidates.push(plane.normal.clone());
+    }
+  }
+
+  let best = candidates[0];
+  let bestScore = -1;
+  for (const candidate of candidates) {
+    const score = layerScore(points, candidate);
+    if (score > bestScore) {
+      bestScore = score;
+      best = candidate;
+    }
+  }
+
+  // RANSAC hands back a normal with an arbitrary sign, so the same scene would otherwise
+  // come out upside down on a different seed. Canonicalise on the largest component and let
+  // the density test below decide which end is really the floor.
+  const up = best.clone().normalize();
+  const largest = Math.abs(up.x) >= Math.abs(up.y) && Math.abs(up.x) >= Math.abs(up.z)
+    ? up.x
+    : Math.abs(up.y) >= Math.abs(up.z)
+      ? up.y
+      : up.z;
+  if (largest < 0) up.negate();
+
+  return { up, score: bestScore };
+}
+
+/**
+ * True when the floor is at the LOW end — i.e. this way up is the right way up.
+ *
+ * A floor is the denser extreme. Objects collect on it and a capture observes it closely,
+ * while a ceiling is flat and featureless.
+ */
+export function floorIsDenserEnd(values: Float64Array): boolean {
+  const sorted = Float64Array.from(values).sort();
+  const lo = sorted[Math.floor(sorted.length * 0.005)];
+  const hi = sorted[Math.floor(sorted.length * 0.995)];
+  const band = Math.max(hi - lo, 1e-9) * 0.023;
+
+  let low = 0;
+  let high = 0;
+  for (const v of values) {
+    if (v >= lo && v < lo + band) low += 1;
+    if (v > hi - band && v <= hi) high += 1;
+  }
+  return low >= high;
+}
+
+/** Percentile of one axis of a packed xyz array. */
 function percentile(centers: Float32Array, count: number, axis: 0 | 1 | 2, p: number): number {
   const values = new Float32Array(count);
   for (let i = 0; i < count; i++) values[i] = centers[i * 3 + axis];
@@ -85,43 +291,44 @@ function percentile(centers: Float32Array, count: number, axis: 0 | 1 | 2, p: nu
   return values[Math.min(count - 1, Math.max(0, Math.floor((count * p) / 100)))];
 }
 
+export interface AlignOptions {
+  /** Override the density heuristic when it guesses the ceiling. One click, per the plan. */
+  flipUp?: boolean;
+}
+
 /**
  * Work out the transform that makes this capture metric and z-up, and apply it in place.
  *
- * The centres are rewritten rather than left in the source frame, so that selection,
- * measurement and the wire all speak the same coordinates. The same matrix goes onto the
- * render mesh, or the physics and the pixels disagree.
+ * The centres are rewritten rather than left in the source frame, so selection, measurement
+ * and the wire all speak the same coordinates. The same matrix goes onto the render mesh, or
+ * the physics and the pixels disagree.
  */
-export function alignScene(cloud: SplatCloud): Alignment {
+export function alignScene(cloud: SplatCloud, options: AlignOptions = {}): Alignment {
   const { centers, count } = cloud;
+  const points = sample(centers, count);
 
-  // 1. Which axis is up. Most captures are y-up or y-down; the layer score decides without
-  //    having to know which convention this particular trainer used.
-  const scores: [0 | 1 | 2, number][] = [
-    [0, layerScore(centers, count, 0)],
-    [1, layerScore(centers, count, 1)],
-    [2, layerScore(centers, count, 2)],
-  ];
-  scores.sort((a, b) => b[1] - a[1]);
-  const upAxis = scores[0][0];
+  const planes = findPlanes(points);
+  const { up: found, score } = estimateUp(planes, points);
+  const up = found.clone();
 
-  // 2. Which way along it. A room sits ABOVE its floor, so the half with more splats in it
-  //    is the ceiling side. Comparing masses either side of the midpoint is enough.
-  const lo = percentile(centers, count, upAxis, 1);
-  const hi = percentile(centers, count, upAxis, 99);
-  const mid = (lo + hi) / 2;
-  let above = 0;
-  for (let i = 0; i < count; i++) if (centers[i * 3 + upAxis] > mid) above += 1;
-  const sign = above > count / 2 ? 1 : -1;
+  // Which end is the floor.
+  const n = points.length / 3;
+  const along = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    along[k] = up.x * points[k * 3] + up.y * points[k * 3 + 1] + up.z * points[k * 3 + 2];
+  }
+  if (!floorIsDenserEnd(along)) up.negate();
+  if (options.flipUp) up.negate();
 
-  // 3. Rotate that axis onto +z.
-  const source = new THREE.Vector3();
-  source.setComponent(upAxis, sign);
-  const rotation = new THREE.Quaternion().setFromUnitVectors(source, new THREE.Vector3(0, 0, 1));
+  // Rotate that direction onto +z, with no roll of its own.
+  const rotation = new THREE.Quaternion().setFromUnitVectors(up, new THREE.Vector3(0, 0, 1));
 
-  // 4. Scale so the room is a room. Against the ROBUST extent, never the bounding box:
-  //    floaters inflate the raw box threefold on the playroom capture, and scaling by that
-  //    makes the room three times too small.
+  // Scale against the ROBUST height along up, never the bounding box: floaters inflate the
+  // raw box threefold on this capture, and scaling by that makes the room three times too
+  // small.
+  const sortedAlong = Float64Array.from(along).sort();
+  const lo = sortedAlong[Math.floor(n * 0.01)];
+  const hi = sortedAlong[Math.floor(n * 0.99)];
   const height = Math.abs(hi - lo);
   const scale = height > 1e-6 ? ROOM_HEIGHT_M / height : 1;
 
@@ -137,10 +344,14 @@ export function alignScene(cloud: SplatCloud): Alignment {
     centers[i * 3 + 2] = v.z;
   }
 
-  // 5. The floor, in the aligned frame. A percentile rather than the minimum, because a
-  //    scene always has a few stray splats below the real floor and one of them would drag
-  //    the whole room upward.
   const groundHeight = percentile(centers, count, 2, FLOOR_PERCENTILE);
 
-  return { matrix, up: new THREE.Vector3(0, 0, 1), groundHeight, appliedScale: scale };
+  return {
+    matrix,
+    up: new THREE.Vector3(0, 0, 1),
+    groundHeight,
+    appliedScale: scale,
+    planes: planes.length,
+    layerScore: score,
+  };
 }

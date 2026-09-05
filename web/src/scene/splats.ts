@@ -157,6 +157,50 @@ export function subset(cloud: SplatCloud, indices: ArrayLike<number>): PackedSpl
   return out;
 }
 
+/**
+ * Rewrite the packed data into the aligned frame, so a cloud has ONE frame throughout.
+ *
+ * `alignScene` transforms `centers` — what selection measures against — but the packed data
+ * the renderer draws is a separate copy. Leaving them in different frames and compensating
+ * with a transform on the render mesh works right up until something reads the packed data
+ * directly, which `bind` does: its splats then land at the capture's original scale and
+ * orientation, somewhere else entirely, while the hole is cut correctly in the aligned
+ * frame. The object appears to vanish.
+ *
+ * So the packed data is rewritten once at load and the mesh carries no transform. A rebuild
+ * of 1.5M splats costs about a second, on top of a load that already takes several.
+ */
+export function applyAlignment(cloud: SplatCloud, matrix: THREE.Matrix4): SplatCloud {
+  // decompose, not setFromRotationMatrix: the latter assumes an UNSCALED matrix, and this
+  // one carries the scale that takes the capture to metres. Reading a rotation straight off
+  // it gives a quaternion that is wrong by exactly that factor.
+  const offset = new THREE.Vector3();
+  const rotation = new THREE.Quaternion();
+  const scaling = new THREE.Vector3();
+  matrix.decompose(offset, rotation, scaling);
+  // The scale applies to a splat's SIZE as well as its position, or a scene scaled to a
+  // third comes back with splats three times too big for it.
+  const scale = scaling.x;
+
+  const out = new PackedSplats();
+  const centre = new THREE.Vector3();
+  const scales = new THREE.Vector3();
+  const spin = new THREE.Quaternion();
+  const colour = new THREE.Color();
+
+  cloud.packed.forEachSplat((_i, c, s, q, opacity, col) => {
+    out.pushSplat(
+      centre.copy(c).applyMatrix4(matrix),
+      scales.copy(s).multiplyScalar(scale),
+      spin.copy(rotation).multiply(q),
+      opacity,
+      colour.copy(col),
+    );
+  });
+
+  return { ...cloud, packed: out };
+}
+
 /** The centre of splat `i`, without allocating. */
 export function centerOf(cloud: SplatCloud, i: number, into: THREE.Vector3): THREE.Vector3 {
   return into.set(cloud.centers[i * 3], cloud.centers[i * 3 + 1], cloud.centers[i * 3 + 2]);

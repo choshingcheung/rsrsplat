@@ -28,7 +28,7 @@ import { useScene } from "../store/scene";
 import type { ClientMessage, PhysicsObject, PoseUpdate, ServerMessage } from "../types/protocol";
 import { bind, easePose, orientationOf, unbind, type BoundObject } from "./binding";
 import { alignScene } from "./ground";
-import { readPly, type SplatCloud } from "./splats";
+import { applyAlignment, readPly, type SplatCloud } from "./splats";
 
 /** How often the frame counter reaches React. Every frame would re-render the tree at 60 Hz. */
 const PERF_INTERVAL_MS = 500;
@@ -161,12 +161,16 @@ export class SceneController {
       }
       this.clearBindings();
 
-      const mesh = new SplatMesh({ packedSplats: cloud.packed, editable: true });
+      // One frame throughout. The mesh carries no transform of its own: compensating on the
+      // render mesh while the packed data stayed in the capture's frame is what made a
+      // physicalised object disappear -- its splats were rebuilt in the wrong frame while
+      // the hole was cut in the right one.
+      const aligned = applyAlignment(cloud, alignment.matrix);
+      const mesh = new SplatMesh({ packedSplats: aligned.packed, editable: true });
       await mesh.initialized;
-      mesh.applyMatrix4(alignment.matrix);
       this.scene.add(mesh);
 
-      this.cloud = cloud;
+      this.cloud = aligned;
       this.staticMesh = mesh;
       this.frameCamera();
       store.ready(cloud.count);
