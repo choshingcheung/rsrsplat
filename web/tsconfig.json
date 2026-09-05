@@ -21,7 +21,8 @@
     "exactOptionalPropertyTypes": true,
     // node: the capture-backed tests read a 371 MB PLY off disk, which is the only way to
     // check the browser parser against the Python reference on real data.
-    "types": ["vitest/globals", "node"]
+    // vite/client: import.meta.env, used to keep message logging out of production.
+    "types": ["vitest/globals", "node", "vite/client"]
   },
   "include": ["src", "vite.config.ts", "../contract/fixtures"]
 }

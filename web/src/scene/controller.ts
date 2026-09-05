@@ -25,7 +25,7 @@ import { connect, type Service } from "../net/client";
 import { measureFrame, toSelection, type MeasuredFrame } from "../selection/frame";
 import { pick, rectFromPointers, type ScreenRect } from "../selection/pick";
 import { useScene } from "../store/scene";
-import type { PhysicsObject, PoseUpdate, ServerMessage } from "../types/protocol";
+import type { ClientMessage, PhysicsObject, PoseUpdate, ServerMessage } from "../types/protocol";
 import { bind, easePose, orientationOf, unbind, type BoundObject } from "./binding";
 import { alignScene } from "./ground";
 import { readPly, type SplatCloud } from "./splats";
@@ -158,7 +158,7 @@ export class SceneController {
         onMessage: (message) => this.receive(message),
         onTransport: (transport) => useScene.getState().setTransport(transport),
       });
-      this.service.send({
+      this.emit({
         type: "scene.load",
         splatId: file.name,
         splatCount: cloud.count,
@@ -276,7 +276,7 @@ export class SceneController {
     this.selectionId = `sel_${(this.counter += 1)}`;
     this.showSelection(frame);
 
-    this.service.send({
+    this.emit({
       type: "selection.commit",
       selection: toSelection(this.selectionId, frame, indices.length),
     });
@@ -341,28 +341,38 @@ export class SceneController {
   // -- physicalize ----------------------------------------------------------------------
 
   physicalize(prompt: string): void {
-    if (!this.service || !this.selectionId) return;
+    if (!this.selectionId) {
+      console.warn("rsrsplat: physicalize with no live selection");
+      return;
+    }
     useScene.getState().setPrompt({ kind: "pending", selectionId: this.selectionId, prompt });
-    this.service.send({
-      type: "object.physicalize",
-      selectionId: this.selectionId,
-      prompt,
-    });
+    this.emit({ type: "object.physicalize", selectionId: this.selectionId, prompt });
   }
 
   control(action: "play" | "pause" | "reset"): void {
-    this.service?.send({ type: "sim.control", action });
+    this.emit({ type: "sim.control", action });
   }
 
   remove(objectId: string): void {
-    this.service?.send({ type: "object.remove", objectId });
+    this.emit({ type: "object.remove", objectId });
     this.unbindOne(objectId);
     useScene.getState().removeObject(objectId);
   }
 
   // -- messages -------------------------------------------------------------------------
 
+  /** Send, and say so. A message that never went is indistinguishable from one ignored. */
+  private emit(message: ClientMessage): void {
+    if (import.meta.env.DEV) console.debug("rsrsplat ->", message.type, message);
+    if (!this.service) {
+      console.warn("rsrsplat: no service yet, dropping", message.type);
+      return;
+    }
+    this.service.send(message);
+  }
+
   private receive(message: ServerMessage): void {
+    if (import.meta.env.DEV) console.debug("rsrsplat <-", message.type, message);
     const store = useScene.getState();
     switch (message.type) {
       case "scene.ready":
@@ -376,7 +386,20 @@ export class SceneController {
           reason: message.reason,
         });
       case "object.created":
-        return this.onCreated(message.object);
+        try {
+          return this.onCreated(message.object);
+        } catch (error) {
+          // Binding is the payoff, so a failure here is the one thing that must never be
+          // swallowed. Without this the object arrives, throws inside a socket handler, and
+          // the interface simply sits there.
+          const reason = error instanceof Error ? error.message : String(error);
+          console.error("rsrsplat: binding failed", error);
+          return store.setPrompt({
+            kind: "failed",
+            selectionId: message.object.selectionId,
+            reason: `built, but could not bind its splats: ${reason}`,
+          });
+        }
       case "pose.batch":
         for (const pose of message.poses) this.targets.set(pose.bodyName, pose);
         return;
