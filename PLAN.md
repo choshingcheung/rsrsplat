@@ -17,7 +17,7 @@ Sequential. Nothing can run in parallel until the seam exists.
       four additions recorded in `DECISIONS.md`. Units commented at every field that has one.
 - [x] **0.4** Golden fixtures in `contract/fixtures/`, one per message type, with a test on
       **both** sides. *Proof:* `pytest` parses every fixture; `tsc` accepts every fixture.
-- [ ] **0.5** Prototype audit → `PORTING.md`. Every source file lands in Port, Rewrite or Leave.
+- [x] **0.5** Prototype audit → `PORTING.md`. Every source file lands in Port, Rewrite or Leave.
       No code moves in this step.
 
 Tag: `phase-0-green`
