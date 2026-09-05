@@ -114,6 +114,7 @@ rsrsplat/
 ├── PLAN.md             # the working plan: tracks, steps, proofs
 ├── DECISIONS.md        # append-only decision log
 ├── PORTING.md          # inventory of the akitech/splat prototype
+├── NOTES.md            # facts measured on the machine, not assumed
 ├── contract/fixtures/  # golden protocol messages, tested by both sides
 ├── web/                # Vite + React + TypeScript + Three.js
 └── service/            # FastAPI + MuJoCo

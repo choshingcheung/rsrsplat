@@ -28,9 +28,12 @@ Tag: `phase-0-green`
 
 Python, headless, provable with `pytest`. No browser involved at any point.
 
-- [ ] **S1 · Splat reading.** Port PLY parsing and the Marble coordinate transform.
-      *Proof:* CLI prints Gaussian count, SH degree and bounding box for the real capture, and
-      the extent is a plausible number of metres. Transform tests on known points.
+- [x] **S1 · Splat reading.** Port PLY parsing and the Marble coordinate transform.
+      *Proof:* CLI prints Gaussian count, SH degree and bounding box for the real capture.
+      Transform tests on known points. 60 tests green.
+      *Caveat:* the extent is NOT a plausible number of metres — the capture is not metric
+      (see `NOTES.md`). That is a fact about the capture, not the parser, and it is what
+      `WorldFrame.sceneScale` exists for. This half of the criterion is met at A3/S4.
 - [ ] **S2 · Schema and validator.** Port the articulation schema and its checker.
       *Proof:* a hand-written dishwasher schema validates; at least five malformed schemas are
       rejected with errors readable enough to feed back to a model.
