@@ -214,8 +214,24 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 message = CLIENT.validate_json(raw)
             except ValidationError as exc:
                 # A malformed message is a bug on the other side of a hand-mirrored
-                # contract. Log it loudly; do not take the session down over one frame.
-                log.warning("unparseable client message: %s", exc.errors()[:2])
+                # contract -- most often one side restarted and the other did not. Do not
+                # take the session down over one frame, but do not swallow it either: a
+                # dropped scene.load surfaces three steps later as "no scene loaded yet",
+                # which sends you looking in entirely the wrong place.
+                detail = "; ".join(
+                    f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()[:3]
+                )
+                log.warning("rejected client message: %s", detail)
+                await connection.send(
+                    ObjectFailed(
+                        selectionId="protocol",
+                        reason=(
+                            f"the service rejected a message it could not parse ({detail}). "
+                            f"This usually means the service and the page are running "
+                            f"different versions of the contract - restart uvicorn."
+                        ),
+                    )
+                )
                 continue
             await connection.handle(message)
     except WebSocketDisconnect:

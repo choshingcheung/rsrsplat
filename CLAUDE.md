@@ -45,7 +45,7 @@ and both will go red if you do not.
 ```bash
 # service
 cd service && python -m pytest tests/ -q
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload   # --reload matters: the contract still moves
 
 # web
 cd web && npm run dev

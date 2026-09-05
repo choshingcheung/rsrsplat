@@ -324,3 +324,34 @@ def test_two_objects_are_both_streamed(client):
 
         batch = recv_until(ws, "pose.batch")
         assert len({p.body_name for p in batch.poses}) == 2
+
+
+def test_a_rejected_message_says_so_instead_of_vanishing(client):
+    """A dropped scene.load used to surface three steps later as "no scene loaded yet",
+    which sends you looking in entirely the wrong place.
+
+    The realistic cause is version skew: the service restarted and the page did not, or the
+    other way round, and one side is sending a field the other has never heard of.
+    """
+    with client.websocket_connect("/ws") as ws:
+        payload = scene_load() | {"somethingNew": 42}
+        ws.send_json(payload)
+        failed = recv(ws)
+
+        assert failed.type == "object.failed"
+        assert failed.selection_id == "protocol"
+        assert "restart uvicorn" in failed.reason
+        assert "somethingNew" in failed.reason
+
+
+def test_a_rejected_message_does_not_end_the_session(client):
+    """One bad frame is a bug to report, not a reason to drop a scene being worked in."""
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json(scene_load())
+        recv_until(ws, "scene.ready")
+        ws.send_text('{"type": "sim.control", "action": "sideways"}')
+        recv_until(ws, "object.failed")
+
+        ws.send_json(selection_commit())
+        ws.send_json({"type": "object.physicalize", "selectionId": "sel_01", "prompt": "a crate"})
+        assert recv_until(ws, "object.created").object.id.startswith("obj_")

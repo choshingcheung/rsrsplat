@@ -493,6 +493,12 @@ export class SceneController {
       case "sim.status":
         return store.setRunning(message.running);
       case "object.failed":
+        if (message.selectionId === "protocol") {
+          // Not about any selection: the service could not parse something we sent, which
+          // in practice means the two sides are running different versions of the contract.
+          console.error("rsrsplat:", message.reason);
+          return store.fail(message.reason);
+        }
         return store.setPrompt({
           kind: "failed",
           selectionId: message.selectionId,
