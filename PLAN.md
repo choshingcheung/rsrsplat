@@ -1,5 +1,9 @@
 # Working plan
 
+> **`STATUS.md` describes what actually exists.** This file is the plan as drawn, and parts of
+> it are stale — the Integration steps below were completed in practice without being ticked.
+> Where the two disagree, `STATUS.md` is right.
+
 Two tracks against a frozen seam. Each step ends green and is provable on its own; nothing is
 "done" because it looks done. Mark steps here as they pass.
 

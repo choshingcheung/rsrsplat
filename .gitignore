@@ -25,6 +25,10 @@ dist-ssr/
 # --- large binaries: never in git, reference by path ---
 *.ply
 *.glb
+# Demo photographs used to generate meshes. Inputs, not source.
+*.jpg
+*.jpeg
+*.png
 *.gltf
 *.splat
 *.ksplat
