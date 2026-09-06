@@ -26,7 +26,7 @@ import { connect, type Service } from "../net/client";
 import { PoseStream } from "../net/interpolate";
 import { measureFrame, toSelection, type MeasuredFrame } from "../selection/frame";
 import { pick, rectFromPointers, type ScreenRect } from "../selection/pick";
-import { segment } from "../selection/sam";
+import { captureView, lastBoxSource, segmentView, type View } from "../selection/sam";
 import { cellsOf, grow, toBoxes, voxelise } from "../selection/voxels";
 import { useScene } from "../store/scene";
 import type {
@@ -102,6 +102,13 @@ export class SceneController {
 
   /** The floor patch for the object currently being physicalised, applied when it binds. */
   private patch: Patch | null = null;
+
+  /** The frozen view and camera the selection rectangle was drawn in, for the model. */
+  private pending: {
+    rect: ScreenRect;
+    camera: THREE.PerspectiveCamera;
+    view: View | null;
+  } | null = null;
 
   private counter = 0;
 
@@ -412,21 +419,13 @@ export class SceneController {
   /**
    * Turn a finished drag into a selection.
    *
-   * Asynchronous because the rectangle is only a prompt: SAM turns it into an object
-   * silhouette, which takes about 150 ms round trip. Every failure path falls back to the
-   * rectangle, so the tool still works with the sidecar stopped.
+   * Deliberately does NOT run the model. Segmentation happens when the user names the thing,
+   * because the sentence is half the prompt -- see `physicalize`. What happens here is the
+   * cheap rectangle path, so the highlight and the count appear the instant the mouse comes
+   * up, and a freeze-frame of the view is taken for the model to look at later.
    */
   private async commitSelection(rect: ScreenRect): Promise<void> {
     if (!this.cloud) return;
-
-    const mask = await segment(this.renderer.domElement, rect);
-    if (import.meta.env.DEV) {
-      console.debug(
-        mask
-          ? `rsrsplat: SAM returned a mask`
-          : `rsrsplat: no mask (sidecar down or empty result), using the rectangle`,
-      );
-    }
 
     const { indices } = pick(
       this.cloud.centers,
@@ -434,87 +433,88 @@ export class SceneController {
       this.cloud.count,
       this.camera,
       rect,
-      { mask },
     );
     if (indices.length < 32) {
       this.clearSelection();
       return;
     }
 
-    // What happens next depends entirely on WHERE the selection came from, and conflating
-    // the two cases is what made SAM look broken while it was working perfectly.
-    //
-    // A RECTANGLE is a hint: it caught part of the object and missed the clipped corner, so
-    // the object has to be grown out of it. A MASK is an answer: the model has already said
-    // what the object is, and growing it only walks out of the object into whatever it is
-    // resting on. A vest touches the carpet along its whole underside, so an 18 cm dilation
-    // takes 18 cm of carpet in every direction -- destroying the silhouette immediately
-    // after paying for it.
-    let owned: Uint32Array;
-    let frame: MeasuredFrame;
-    let escaped = false;
+    // The rectangle is a HINT: it caught part of the object and MISSED whatever fell outside
+    // the box. Grow it into something plausible, so that a selection made with the sidecar
+    // stopped is still usable.
+    const hint = measureFrame(
+      this.cloud.centers,
+      indices,
+      new THREE.Vector3(0, 0, 1),
+      this.camera.position,
+    );
+    const grown = grow(
+      voxelise(this.cloud.centers, this.cloud.count, hint),
+      this.cloud.centers,
+      indices,
+      hint,
+      { surfaces: this.surfaces },
+    );
+    const escaped = grown.escaped || grown.indices.length < 32;
+    const owned = escaped ? Uint32Array.from(indices) : grown.indices;
+    const frame = escaped
+      ? hint
+      : measureFrame(this.cloud.centers, owned, new THREE.Vector3(0, 0, 1), this.camera.position);
 
-    if (mask) {
-      owned = Uint32Array.from(indices);
-      frame = measureFrame(
-        this.cloud.centers,
-        owned,
-        new THREE.Vector3(0, 0, 1),
-        this.camera.position,
-      );
-    } else {
-      const hint = measureFrame(
-        this.cloud.centers,
-        indices,
-        new THREE.Vector3(0, 0, 1),
-        this.camera.position,
-      );
-      const grown = grow(
-        voxelise(this.cloud.centers, this.cloud.count, hint),
-        this.cloud.centers,
-        indices,
-        hint,
-        { surfaces: this.surfaces },
-      );
-      // A flood that escaped is worse than no segmentation at all, so fall back to what the
-      // user actually drew rather than handing physics the whole room.
-      escaped = grown.escaped || grown.indices.length < 32;
-      owned = escaped ? Uint32Array.from(indices) : grown.indices;
-      frame = escaped
-        ? hint
-        : measureFrame(this.cloud.centers, owned, new THREE.Vector3(0, 0, 1), this.camera.position);
-    }
+    // The view as it was when the rectangle was drawn, and the camera that drew it. The user
+    // is about to type, and may orbit while doing so; a mask computed from one camera and
+    // applied to another is nonsense that looks like the model being wrong.
+    this.pending = {
+      rect,
+      camera: this.camera.clone(),
+      view: await captureView(this.renderer.domElement),
+    };
+
+    this.selectionId = `sel_${(this.counter += 1)}`;
+    this.applySelection(owned, frame, indices.length, escaped ? "rectangle (grow escaped)" : "rectangle");
+
+    useScene.getState().setPrompt({
+      kind: "asking",
+      selectionId: this.selectionId,
+      splatCount: owned.length,
+    });
+  }
+
+  /**
+   * Adopt a set of splats as the selection: measure its shape, show it, and tell the service.
+   *
+   * Shared by the rectangle path and the mask path, and re-run when the mask replaces the
+   * rectangle's answer. The selection id is deliberately NOT changed on a re-run: the service
+   * keys selections by id, so committing again simply corrects the one it already has.
+   */
+  private applySelection(
+    owned: Uint32Array,
+    frame: MeasuredFrame,
+    fromCount: number,
+    via: string,
+  ): void {
+    if (!this.cloud || !this.selectionId) return;
 
     // The collision shape, from the cells the owned splats actually occupy. Measured in the
     // frame the object ENDED UP with: a grid built around an earlier frame offsets every box
     // by however far the centroid moved.
     const grid = voxelise(this.cloud.centers, this.cloud.count, frame);
-    const shape: ShapeBox[] = toBoxes(
-      grid,
-      cellsOf(grid, this.cloud.centers, frame, owned),
-    );
+    const shape: ShapeBox[] = toBoxes(grid, cellsOf(grid, this.cloud.centers, frame, owned));
 
     this.selectedIndices = owned;
     this.selectedFrame = frame;
-    this.selectionId = `sel_${(this.counter += 1)}`;
     this.showSelection(frame);
 
     if (import.meta.env.DEV) {
       console.debug(
-        `rsrsplat: selection via ${mask ? "SAM mask" : "rectangle"} — ` +
-          `${indices.length} -> ${owned.length} splats, ${shape.length} collision boxes` +
-          (escaped ? " (grow escaped; fell back to the rectangle)" : ""),
+        `rsrsplat: selection via ${via} — ${fromCount} -> ${owned.length} splats, ` +
+          `${shape.length} collision boxes`,
       );
     }
 
     this.emit({
       type: "selection.commit",
       selection: toSelection(this.selectionId, frame, owned.length, shape),
-    });
-    useScene.getState().setPrompt({
-      kind: "asking",
-      selectionId: this.selectionId,
-      splatCount: owned.length,
     });
   }
 
@@ -589,18 +589,70 @@ export class SceneController {
     return best;
   }
 
+  /**
+   * Name the selection, and make it real.
+   *
+   * The sentence does two jobs, and this is the order they have to happen in. First it tells
+   * the segmentation model WHAT to look for, which turns the loose rectangle into an object
+   * silhouette. Only then is it worth deciding what the object is made of, because the mass
+   * and the joints are derived from half-extents that the silhouette has just corrected.
+   *
+   * Segmenting at drag time instead -- which is what this did first -- throws away the most
+   * informative thing the user gives us. A box says which one; the sentence says what.
+   */
   physicalize(prompt: string): void {
     if (!this.selectionId) {
       console.warn("rsrsplat: physicalize with no live selection");
       return;
     }
     useScene.getState().setPrompt({ kind: "pending", selectionId: this.selectionId, prompt });
+    void this.segmentThenPhysicalize(prompt);
+  }
+
+  private async segmentThenPhysicalize(prompt: string): Promise<void> {
+    if (!this.cloud || !this.selectionId) return;
+
+    // Refine the selection with the model, now that there is a sentence to give it.
+    const pending = this.pending;
+    if (pending?.view) {
+      const mask = await segmentView(pending.view, pending.rect, prompt);
+      if (mask) {
+        const { indices } = pick(
+          this.cloud.centers,
+          this.cloud.opacities,
+          this.cloud.count,
+          // The camera the rectangle was drawn with, NOT the one now: the user may well have
+          // orbited while typing, and the mask belongs to the frozen view.
+          pending.camera,
+          pending.rect,
+          { mask },
+        );
+        if (indices.length >= 32) {
+          const owned = Uint32Array.from(indices);
+          // No grow. The model has already said what the object is; dilating its answer only
+          // walks out into whatever the object is resting on.
+          const frame = measureFrame(
+            this.cloud.centers,
+            owned,
+            new THREE.Vector3(0, 0, 1),
+            pending.camera.position,
+          );
+          this.applySelection(owned, frame, indices.length, `SAM, box from ${lastBoxSource || "drag"}`);
+        } else if (import.meta.env.DEV) {
+          console.debug("rsrsplat: mask matched too few splats, keeping the rectangle");
+        }
+      } else if (import.meta.env.DEV) {
+        console.debug("rsrsplat: no mask (sidecar down or empty), keeping the rectangle");
+      }
+    }
+    this.pending = null;
+
     // Close the hole this is about to open. Computed here rather than after the object
     // arrives, so its collision reaches the service in the same message: a floor that is
     // whole one frame later is a floor something has already started falling through.
     this.patch = null;
     const surface = this.selectedFrame ? this.restingSurface(this.selectedFrame) : null;
-    if (this.cloud && this.selectedIndices && surface !== null) {
+    if (this.selectedIndices && surface !== null) {
       const patch = healSurface(this.cloud, this.selectedIndices, surface, {
         id: `patch_${this.selectionId}`,
       });

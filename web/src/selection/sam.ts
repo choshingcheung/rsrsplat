@@ -49,27 +49,54 @@ export async function samAvailable(timeoutMs = 800): Promise<boolean> {
 }
 
 /**
- * Ask the model what object is inside this rectangle.
+ * The rendered view, frozen at the moment the drag ended.
  *
- * `canvas` must be the one that just rendered the view the rectangle was drawn over, and its
- * renderer needs `preserveDrawingBuffer` or the capture comes back blank — a WebGL drawing
- * buffer is not readable after the frame is composited.
- *
- * Returns null on any failure, including the sidecar being absent.
+ * Captured then rather than when it is used, because segmentation happens after the user has
+ * typed a sentence and they may well have orbited in between. A mask computed from a
+ * different camera than the rectangle was drawn in is nonsense, and looks like the model
+ * being wrong.
  */
-export async function segment(
-  canvas: HTMLCanvasElement,
-  rect: ScreenRect,
-  timeoutMs = 8000,
-): Promise<Mask | null> {
-  if (!(await samAvailable())) return null;
+export interface View {
+  blob: Blob;
+  /** Device pixels of the ORIGINAL canvas, which is the space masks come back in. */
+  width: number;
+  height: number;
+  /** How much the blob was downscaled by, so box coordinates can follow. */
+  scale: number;
+}
 
+/** Freeze the current view. Needs `preserveDrawingBuffer` on the renderer. */
+export async function captureView(canvas: HTMLCanvasElement): Promise<View | null> {
   const width = canvas.width;
   const height = canvas.height;
   if (width === 0 || height === 0) return null;
+  const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
+  const blob = await capture(canvas, scale);
+  return blob ? { blob, width, height, scale } : null;
+}
+
+/**
+ * Ask the model what object is in this rectangle, optionally told what to look for.
+ *
+ * The rectangle and the sentence answer different halves of the question and the sidecar
+ * uses both: the sentence says WHAT, the rectangle says WHICH ONE. A room may hold several
+ * vests and the most confident one is not necessarily the one being pointed at.
+ *
+ * Returns null on any failure, including the sidecar being absent, so the caller falls back
+ * to the plain rectangle.
+ */
+export async function segmentView(
+  view: View,
+  rect: ScreenRect,
+  prompt = "",
+  timeoutMs = 15000,
+): Promise<Mask | null> {
+  if (!(await samAvailable())) return null;
+
+  const { width, height, scale } = view;
 
   // NDC is -1..1 with +y up; pixels are 0..n with +y DOWN. Getting this backwards produces a
-  // mask that is a perfect mirror of the object, which looks like a segmentation failure
+  // mask that is a perfect mirror of the object, which reads as a segmentation failure
   // rather than a coordinate one.
   const toPx = (ndcX: number, ndcY: number): [number, number] => [
     ((ndcX + 1) / 2) * width,
@@ -78,16 +105,13 @@ export async function segment(
   const [px0, py1] = toPx(rect.x0, rect.y0);
   const [px1, py0] = toPx(rect.x1, rect.y1);
 
-  const scale = Math.min(1, MAX_EDGE / Math.max(width, height));
-  const blob = await capture(canvas, scale);
-  if (!blob) return null;
-
   const query = new URLSearchParams({
     x0: String(px0 * scale),
     y0: String(py0 * scale),
     x1: String(px1 * scale),
     y1: String(py1 * scale),
   });
+  if (prompt.trim()) query.set("prompt", prompt.trim());
 
   let bitmap: ImageBitmap;
   try {
@@ -95,12 +119,13 @@ export async function segment(
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const response = await fetch(`${ENDPOINT}/segment?${query}`, {
       method: "POST",
-      body: blob,
+      body: view.blob,
       headers: { "Content-Type": "image/png" },
       signal: controller.signal,
     });
     clearTimeout(timer);
     if (!response.ok) return null;
+    lastBoxSource = response.headers.get("X-Box-Source") ?? "";
     bitmap = await createImageBitmap(await response.blob());
   } catch {
     return null;
@@ -125,11 +150,14 @@ export async function segment(
     set += on;
   }
   // An empty mask is a failure dressed as a success: the caller must fall back rather than
-  // select nothing.
+  // select nothing at all.
   if (set === 0) return null;
 
   return { data, width, height };
 }
+
+/** Whether the last mask came from the sentence or from the raw drag. For the debug line. */
+export let lastBoxSource = "";
 
 /** The rendered view as a PNG, optionally downscaled. */
 async function capture(canvas: HTMLCanvasElement, scale: number): Promise<Blob | null> {

@@ -50,6 +50,8 @@ from fastapi.responses import Response
 from PIL import Image
 
 MODEL_ID = os.environ.get("RSRSPLAT_SAM_MODEL", "facebook/sam2.1-hiera-tiny")
+#: Open-vocabulary detector, so the sentence the user types can steer the mask.
+GROUND_ID = os.environ.get("RSRSPLAT_GROUND_MODEL", "google/owlv2-base-patch16-ensemble")
 PORT = int(os.environ.get("RSRSPLAT_SAM_PORT", "8008"))
 
 app = FastAPI(title="rsrsplat SAM sidecar")
@@ -65,6 +67,8 @@ app.add_middleware(
 
 _model = None
 _processor = None
+_ground = None
+_ground_processor = None
 _device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -81,13 +85,75 @@ def _load():
     return _model, _processor
 
 
+def _load_ground():
+    """The text-to-box model, loaded only if a prompt is ever sent."""
+    global _ground, _ground_processor
+    if _ground is None:
+        from transformers import Owlv2ForObjectDetection, Owlv2Processor
+
+        started = time.time()
+        _ground_processor = Owlv2Processor.from_pretrained(GROUND_ID)
+        _ground = Owlv2ForObjectDetection.from_pretrained(GROUND_ID).to(_device).eval()
+        print(f"[sam] {GROUND_ID} on {_device} in {time.time() - started:.1f}s", flush=True)
+    return _ground, _ground_processor
+
+
+def _iou(a, b) -> float:
+    ix0, iy0 = max(a[0], b[0]), max(a[1], b[1])
+    ix1, iy1 = min(a[2], b[2]), min(a[3], b[3])
+    if ix1 <= ix0 or iy1 <= iy0:
+        return 0.0
+    inter = (ix1 - ix0) * (iy1 - iy0)
+    area_a = max(1e-6, (a[2] - a[0]) * (a[3] - a[1]))
+    area_b = max(1e-6, (b[2] - b[0]) * (b[3] - b[1]))
+    return inter / (area_a + area_b - inter)
+
+
+def _ground_box(pil, text: str, drag, threshold: float = 0.06):
+    """Tighten the user's drag box using what they called the thing.
+
+    The drag box and the sentence answer different halves of the question and both are
+    needed. The sentence says WHAT ("a vest") but not which one, and a room may hold several;
+    the drag says WHICH but not where the object ends, because a rectangle drawn by hand is
+    loose and clips whatever hangs outside it.
+
+    So detections are scored by overlap with the drag rather than by confidence alone. The
+    most confident vest in the room is not necessarily the vest being pointed at.
+    """
+    model, processor = _load_ground()
+    inputs = processor(text=[[text]], images=pil, return_tensors="pt").to(_device)
+    with torch.inference_mode():
+        out = model(**inputs)
+    sizes = torch.tensor([[pil.height, pil.width]])
+    found = processor.post_process_grounded_object_detection(
+        out, threshold=threshold, target_sizes=sizes
+    )[0]
+
+    best, best_score = None, 0.0
+    for box, score in zip(found["boxes"].tolist(), found["scores"].tolist()):
+        overlap = _iou(box, drag)
+        if overlap < 0.1:
+            continue  # a different instance of the same noun, somewhere else in the room
+        combined = overlap * float(score)
+        if combined > best_score:
+            best, best_score = box, combined
+    return best, best_score
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "model": MODEL_ID, "device": _device, "loaded": _model is not None}
 
 
 @app.post("/segment")
-async def segment(request: Request, x0: float, y0: float, x1: float, y1: float) -> Response:
+async def segment(
+    request: Request,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    prompt: str = "",
+) -> Response:
     """A viewport PNG as the raw body and a box in PIXELS as the query; back comes a mask.
 
     The box is a PROMPT, not a crop. SAM is being asked "what object is in here", and its
@@ -100,9 +166,21 @@ async def segment(request: Request, x0: float, y0: float, x1: float, y1: float) 
     model, processor = _load()
 
     pil = Image.open(io.BytesIO(await request.body())).convert("RGB")
-    box = [[[float(x0), float(y0), float(x1), float(y1)]]]
+    drag = [float(x0), float(y0), float(x1), float(y1)]
 
     started = time.time()
+    source = "drag"
+    prompt = prompt.strip()
+    if prompt:
+        try:
+            grounded, score = _ground_box(pil, prompt, drag)
+            if grounded is not None:
+                drag = grounded
+                source = f"prompt({score:.2f})"
+        except Exception as exc:  # never fail the request over the optional half
+            print(f"[sam] grounding failed, using the drag box: {exc}", flush=True)
+
+    box = [[drag]]
     inputs = processor(images=pil, input_boxes=box, return_tensors="pt").to(_device)
     with torch.inference_mode():
         out = model(**inputs, multimask_output=False)
@@ -113,14 +191,18 @@ async def segment(request: Request, x0: float, y0: float, x1: float, y1: float) 
     Image.fromarray(mask, mode="L").save(buffer, format="PNG", optimize=False)
 
     print(
-        f"[sam] {pil.width}x{pil.height} box=({x0:.0f},{y0:.0f})-({x1:.0f},{y1:.0f}) "
-        f"-> {int(mask.sum() // 255)} px in {time.time() - started:.2f}s",
+        f"[sam] {pil.width}x{pil.height} {source} "
+        f"box=({drag[0]:.0f},{drag[1]:.0f})-({drag[2]:.0f},{drag[3]:.0f}) "
+        f"{prompt!r} -> {int(mask.sum() // 255)} px in {time.time() - started:.2f}s",
         flush=True,
     )
     return Response(
         content=buffer.getvalue(),
         media_type="image/png",
-        headers={"X-Mask-Pixels": str(int(mask.sum() // 255))},
+        headers={
+            "X-Mask-Pixels": str(int(mask.sum() // 255)),
+            "X-Box-Source": source,
+        },
     )
 
 
