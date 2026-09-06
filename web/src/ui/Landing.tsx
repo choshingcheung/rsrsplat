@@ -20,6 +20,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const SERVICE = import.meta.env.VITE_SERVICE_URL ?? `http://${location.hostname}:8000`;
 
+/**
+ * The capture a dropped photograph opens.
+ *
+ * Matched on the name so that it survives the capture tool writing new scans beside it —
+ * "newest" is the wrong rule when the newest is a test export made two minutes ago. Falls
+ * back to the most recent if this one is not there.
+ */
+const PREFERRED = "desk";
+
 interface Capture {
   name: string;
   bytes: number;
@@ -71,7 +80,7 @@ export function Landing({ onOpen }: { onOpen: (file: File) => void }) {
         setError("no captures yet — drop a .ply, or run the capture tool first");
         return;
       }
-      void open(captures[0]);
+      void open(captures.find((c) => label(c.name) === PREFERRED) ?? captures[0]);
     },
     [captures, onOpen, open],
   );

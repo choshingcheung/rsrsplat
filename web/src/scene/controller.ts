@@ -859,7 +859,19 @@ export class SceneController {
     const part = bound.parts[0];
     if (!part || bound.parts.length > 1 || !this.selectedFrameFor(bound)) return;
 
-    const image = await captureObject(this.renderer, this.scene, this.camera, [part.mesh]);
+    // Hide the room and every other object, but NOT the Spark renderer, which is what draws
+    // Gaussians at all. Everything else in shot ends up fused into the generated mesh.
+    const others: THREE.Object3D[] = [];
+    for (const [id, other] of this.bound) {
+      if (id !== bound.id) others.push(...other.parts.map((p) => p.mesh));
+    }
+    const image = captureObject(this.renderer, this.scene, this.camera, [
+      // The selection tint is a SplatEdit attached to the static mesh, so it is hidden with
+      // it — the object is never photographed wearing the accent colour.
+      this.staticMesh,
+      ...others,
+      ...this.generated.values(),
+    ]);
     if (!image) return;
 
     const result = await requestMesh(image);

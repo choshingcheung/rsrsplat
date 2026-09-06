@@ -23,39 +23,41 @@ const SERVICE = import.meta.env.VITE_SERVICE_URL ?? `http://${location.hostname}
 /**
  * Photograph one object on its own.
  *
- * Everything else in the scene is hidden for a single synchronous render, so what comes back
- * is the object against a flat ground and nothing else. That matters more than it sounds:
- * image-to-3D models reconstruct what they are shown, so a picture containing a slice of
- * carpet produces a mesh with a slice of carpet fused to it.
+ * Takes what to HIDE rather than what to keep, and that is not a stylistic choice. The scene
+ * also holds a `SparkRenderer`, which is the object that actually draws Gaussians; hiding
+ * everything except the target would hide it too and produce a blank grey frame. Tripo would
+ * then dutifully reconstruct a grey rectangle, and the fault would look like the model's.
+ *
+ * Isolation matters because image-to-3D reconstructs what it is shown: a picture containing
+ * a slice of carpet produces a mesh with carpet fused to it.
  */
 export function captureObject(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
-  keep: THREE.Object3D[],
-): Promise<Blob | null> {
+  hide: (THREE.Object3D | null | undefined)[],
+): Blob | null {
   const hidden: THREE.Object3D[] = [];
-  for (const child of scene.children) {
-    if (child.visible && !keep.includes(child)) {
-      child.visible = false;
-      hidden.push(child);
+  for (const item of hide) {
+    if (item && item.visible) {
+      item.visible = false;
+      hidden.push(item);
     }
   }
 
-  // A flat, mid-grey ground rather than the scene's near-black: a subject floating in a void
+  // A flat mid-grey ground rather than the scene's near-black: a subject floating in a void
   // gives the model no sense of scale, and pure black eats the object's own shadows.
   const background = scene.background;
   scene.background = new THREE.Color(0.42, 0.42, 0.44);
 
   try {
     renderer.render(scene, camera);
-    const dataUrl = renderer.domElement.toDataURL("image/png");
-    return Promise.resolve(dataUrlToBlob(dataUrl));
+    return dataUrlToBlob(renderer.domElement.toDataURL("image/png"));
   } catch {
-    return Promise.resolve(null);
+    return null;
   } finally {
     scene.background = background;
-    for (const child of hidden) child.visible = true;
+    for (const item of hidden) item.visible = true;
     renderer.render(scene, camera);
   }
 }
