@@ -12,6 +12,7 @@ import { activeController } from "./scene/controller";
 import { Viewport } from "./scene/Viewport";
 import { useScene } from "./store/scene";
 import { Empty } from "./ui/Empty";
+import { Landing } from "./ui/Landing";
 import { Frame } from "./ui/Frame";
 import { ObjectList } from "./ui/ObjectList";
 import { PromptBar } from "./ui/PromptBar";
@@ -48,7 +49,11 @@ export default function App() {
       <Viewport />
       <Frame live={phase === "reading" || dragging} />
       <Readout />
-      <Empty />
+      {phase === "empty" ? (
+        <Landing onOpen={(file) => void activeController()?.load(file)} />
+      ) : (
+        <Empty />
+      )}
       <ObjectList />
       <PromptBar />
     </main>

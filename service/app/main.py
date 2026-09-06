@@ -21,6 +21,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
+import pathlib
 import time
 import uuid
 from typing import Any
@@ -70,6 +72,28 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Mesh-Cached"],
 )
+
+#: Where finished captures live. The browser cannot read the filesystem, so a scan produced
+#: by the capture tool has to be served to it like anything else.
+_DEFAULT_CAPTURE_DIR = pathlib.Path(__file__).resolve().parents[2] / "capture" / "out"
+CAPTURE_DIR = pathlib.Path(os.environ.get("SPLAT_CAPTURE_DIR", _DEFAULT_CAPTURE_DIR))
+
+
+@app.get("/captures")
+def captures() -> list[dict]:
+    """Finished scans, newest first.
+
+    Lets the browser open a capture without the user hunting for a 127 MB file on disk.
+    Names only -- the file itself goes over the static mount below.
+    """
+    if not CAPTURE_DIR.is_dir():
+        return []
+    found = sorted(CAPTURE_DIR.glob("*.ply"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return [{"name": p.name, "bytes": p.stat().st_size} for p in found]
+
+
+if CAPTURE_DIR.is_dir():
+    app.mount("/captures/file", StaticFiles(directory=str(CAPTURE_DIR)), name="captures")
 
 mesh.MESH_DIR.mkdir(parents=True, exist_ok=True)
 # Generated meshes are served straight off disk. They are large binaries and deliberately
