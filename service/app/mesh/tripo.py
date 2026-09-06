@@ -40,7 +40,10 @@ API = "https://api.tripo3d.ai/v2/openapi"
 
 #: Where generated and hand-placed meshes live. Outside the repo: these are large binaries.
 _DEFAULT_MESH_DIR = pathlib.Path(__file__).resolve().parents[3] / "assets" / "meshes"
-MESH_DIR = pathlib.Path(os.environ.get("RSRSPLAT_MESH_DIR", _DEFAULT_MESH_DIR))
+#: Blank counts as unset: a .env template carries its keys with empty values, and an empty
+#: string here resolves to the working directory, which silently holds no meshes.
+_configured = os.environ.get("RSRSPLAT_MESH_DIR", "").strip()
+MESH_DIR = pathlib.Path(_configured) if _configured else _DEFAULT_MESH_DIR
 
 
 class TripoError(RuntimeError):
@@ -58,12 +61,48 @@ class Mesh:
 
     @property
     def url(self) -> str:
-        return f"/meshes/{self.path.name}"
+        """Served relative to the mesh mount, including any subdirectory it sits in."""
+        try:
+            return "/meshes/" + self.path.relative_to(MESH_DIR).as_posix()
+        except ValueError:
+            return f"/meshes/{self.path.name}"
 
 
 def key_for(image: bytes) -> str:
     """Cache key: the image decides the mesh, so the image's hash names it."""
     return hashlib.sha256(image).hexdigest()[:16]
+
+
+#: Meshes chosen by hand, matched against the prompt. See `pinned`.
+PINNED_DIR_NAME = "pinned"
+
+
+def pinned(prompt: str) -> Mesh | None:
+    """A mesh chosen by hand for this prompt, if there is one.
+
+    The content cache is keyed on the image, which is right for avoiding duplicate work and
+    useless for a demo: the second run photographs the object from a slightly different
+    camera, the bytes differ, the hash differs, and a minute of generation happens again on
+    stage. Pinning removes the guesswork -- put ``vest.glb`` in ``meshes/pinned/`` and any
+    prompt containing "vest" uses it, every time, with no network call.
+
+    Matching is by the file's own stem appearing in the prompt, longest first so that
+    ``high_vis_vest.glb`` beats ``vest.glb`` when both could apply. ``default.glb`` matches
+    anything, for the case where there is only one object in the demo and naming it is fuss.
+    """
+    directory = MESH_DIR / PINNED_DIR_NAME
+    if not directory.is_dir():
+        return None
+
+    words = prompt.lower()
+    candidates = sorted(directory.glob("*.glb"), key=lambda p: len(p.stem), reverse=True)
+    for path in candidates:
+        stem = path.stem.lower()
+        if stem != "default" and stem.replace("_", " ") in words:
+            return Mesh(path.stem, path, cached=True)
+
+    fallback = directory / "default.glb"
+    return Mesh("default", fallback, cached=True) if fallback.is_file() else None
 
 
 def cached(image: bytes) -> Mesh | None:

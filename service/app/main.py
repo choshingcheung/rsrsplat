@@ -84,8 +84,20 @@ app.add_middleware(
 
 #: Where finished captures live. The browser cannot read the filesystem, so a scan produced
 #: by the capture tool has to be served to it like anything else.
+def env_path(name: str, default: pathlib.Path) -> pathlib.Path:
+    """An environment variable as a path, treating BLANK as unset.
+
+    `.env` templates carry their keys with empty values so people know what to fill in, and
+    `os.environ.get(name, default)` then returns the empty string rather than the default --
+    a path that resolves to the working directory and silently contains nothing. That is how
+    "no captures yet" appeared for a directory holding three of them.
+    """
+    value = os.environ.get(name, "").strip()
+    return pathlib.Path(value) if value else default
+
+
 _DEFAULT_CAPTURE_DIR = pathlib.Path(__file__).resolve().parents[2] / "capture" / "out"
-CAPTURE_DIR = pathlib.Path(os.environ.get("SPLAT_CAPTURE_DIR", _DEFAULT_CAPTURE_DIR))
+CAPTURE_DIR = env_path("SPLAT_CAPTURE_DIR", _DEFAULT_CAPTURE_DIR)
 
 
 @app.get("/captures")
@@ -111,7 +123,7 @@ app.mount("/meshes", StaticFiles(directory=str(mesh.MESH_DIR)), name="meshes")
 
 
 @app.post("/mesh")
-async def make_mesh(request: Request) -> dict:
+async def make_mesh(request: Request, prompt: str = "") -> dict:
     """A PNG of one object, in; a generated GLB, out.
 
     The image is the whole prompt, so it is also the cache key -- the same selection
@@ -125,6 +137,14 @@ async def make_mesh(request: Request) -> dict:
     image = await request.body()
     if len(image) < 128:
         raise HTTPException(status_code=400, detail="empty or truncated image")
+
+    # A mesh chosen by hand wins over anything generated. This is what a demo runs on:
+    # the content cache keys on the image, and the second run photographs the object from a
+    # slightly different camera, so it misses and generates again -- on stage, for a minute.
+    chosen = mesh.pinned(prompt)
+    if chosen is not None:
+        log.info("using pinned mesh %s for %r", chosen.path.name, prompt)
+        return {"url": chosen.url, "cached": True, "pinned": True}
 
     hit = mesh.cached(image)
     if hit is not None:

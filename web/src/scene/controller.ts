@@ -96,6 +96,9 @@ export class SceneController {
 
   /** Measured half-extents per object, kept because the selection is cleared on create. */
   private halfExtentsFor = new Map<string, THREE.Vector3>();
+
+  /** What the user last called an object, which is how a pinned mesh is chosen for it. */
+  private lastPrompt = "";
   /** Buffered poses, interpolated by elapsed time rather than smoothed toward. */
   private stream = new PoseStream();
 
@@ -619,6 +622,7 @@ export class SceneController {
 
   private async segmentThenPhysicalize(prompt: string): Promise<void> {
     if (!this.cloud || !this.selectionId) return;
+    this.lastPrompt = prompt;
 
     // Refine the selection with the model, now that there is a sentence to give it.
     await this.refineWithModel(prompt);
@@ -874,7 +878,7 @@ export class SceneController {
     ]);
     if (!image) return;
 
-    const result = await requestMesh(image);
+    const result = await requestMesh(image, this.lastPrompt);
     if (!result) return;
 
     const half = this.selectedFrameFor(bound)!;

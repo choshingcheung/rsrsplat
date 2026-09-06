@@ -116,3 +116,59 @@ class _BadJson(_Response):
 
     def json(self) -> dict:
         raise ValueError("not json")
+
+
+# ---------------------------------------------------------------------------------------
+# Pinned meshes: the ones a demo actually runs on
+# ---------------------------------------------------------------------------------------
+
+
+def pin(directory: pathlib.Path, name: str) -> pathlib.Path:
+    pinned = directory / tripo.PINNED_DIR_NAME
+    pinned.mkdir(exist_ok=True)
+    path = pinned / f"{name}.glb"
+    path.write_bytes(b"glb")
+    return path
+
+
+def test_a_pinned_mesh_is_chosen_by_name(mesh_dir: pathlib.Path):
+    """The property a demo needs: same prompt, same mesh, every run, no network."""
+    pin(mesh_dir, "vest")
+    hit = tripo.pinned("a heavy vest")
+    assert hit is not None
+    assert hit.path.name == "vest.glb"
+    assert hit.url == "/meshes/pinned/vest.glb"
+
+
+def test_the_most_specific_pin_wins(mesh_dir: pathlib.Path):
+    """Otherwise adding a second, more precise mesh would be a coin toss."""
+    pin(mesh_dir, "vest")
+    pin(mesh_dir, "high_vis_vest")
+    hit = tripo.pinned("a high vis vest on the floor")
+    assert hit is not None and hit.path.stem == "high_vis_vest"
+
+
+def test_underscores_in_a_file_name_read_as_spaces(mesh_dir: pathlib.Path):
+    """A file cannot be called "high vis vest.glb" comfortably, but the prompt says that."""
+    pin(mesh_dir, "tool_box")
+    assert tripo.pinned("the tool box under the desk") is not None
+
+
+def test_default_matches_anything(mesh_dir: pathlib.Path):
+    """For the common demo case: one object, and naming it is fuss."""
+    pin(mesh_dir, "default")
+    assert tripo.pinned("literally anything") is not None
+
+
+def test_a_named_pin_beats_the_default(mesh_dir: pathlib.Path):
+    pin(mesh_dir, "default")
+    pin(mesh_dir, "vest")
+    hit = tripo.pinned("a vest")
+    assert hit is not None and hit.path.stem == "vest"
+
+
+def test_no_pins_means_no_pin(mesh_dir: pathlib.Path):
+    assert tripo.pinned("a vest") is None
+    pin(mesh_dir, "chair")
+    assert tripo.pinned("a vest") is None
+

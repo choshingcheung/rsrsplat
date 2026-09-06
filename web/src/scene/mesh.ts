@@ -65,18 +65,26 @@ export function captureObject(
 export interface MeshResult {
   url: string;
   cached: boolean;
+  /** True when a hand-chosen mesh was used rather than anything generated. */
+  pinned?: boolean;
 }
 
 /**
  * Ask the service for a mesh of this image.
  *
+ * The prompt goes too, and not as a hint to the generator: it is how a PINNED mesh is
+ * chosen. The content cache keys on the image, which misses whenever the camera has moved
+ * even slightly, so a demo that depends on it generates for a minute on stage. A mesh
+ * pinned by name is the same mesh every run.
+ *
  * The service holds the API key and the cache; the browser only ever sees a URL. A failure
  * returns null with the reason logged, because a missing mesh is a cosmetic loss and must
  * never take the object down with it.
  */
-export async function requestMesh(image: Blob): Promise<MeshResult | null> {
+export async function requestMesh(image: Blob, prompt = ""): Promise<MeshResult | null> {
   try {
-    const response = await fetch(`${SERVICE}/mesh`, {
+    const query = prompt.trim() ? `?prompt=${encodeURIComponent(prompt.trim())}` : "";
+    const response = await fetch(`${SERVICE}/mesh${query}`, {
       method: "POST",
       body: image,
       headers: { "Content-Type": "image/png" },
