@@ -26,7 +26,8 @@ import { connect, type Service } from "../net/client";
 import { PoseStream } from "../net/interpolate";
 import { measureFrame, toSelection, type MeasuredFrame } from "../selection/frame";
 import { pick, rectFromPointers, type ScreenRect } from "../selection/pick";
-import { captureView, lastBoxSource, segmentView, type View } from "../selection/sam";
+import { captureOrbit, vote } from "../selection/multiview";
+import { captureView, lastBoxSource, samAvailable, segmentView, type View } from "../selection/sam";
 import { cellsOf, grow, toBoxes, voxelise } from "../selection/voxels";
 import { useScene } from "../store/scene";
 import type {
@@ -613,38 +614,7 @@ export class SceneController {
     if (!this.cloud || !this.selectionId) return;
 
     // Refine the selection with the model, now that there is a sentence to give it.
-    const pending = this.pending;
-    if (pending?.view) {
-      const mask = await segmentView(pending.view, pending.rect, prompt);
-      if (mask) {
-        const { indices } = pick(
-          this.cloud.centers,
-          this.cloud.opacities,
-          this.cloud.count,
-          // The camera the rectangle was drawn with, NOT the one now: the user may well have
-          // orbited while typing, and the mask belongs to the frozen view.
-          pending.camera,
-          pending.rect,
-          { mask },
-        );
-        if (indices.length >= 32) {
-          const owned = Uint32Array.from(indices);
-          // No grow. The model has already said what the object is; dilating its answer only
-          // walks out into whatever the object is resting on.
-          const frame = measureFrame(
-            this.cloud.centers,
-            owned,
-            new THREE.Vector3(0, 0, 1),
-            pending.camera.position,
-          );
-          this.applySelection(owned, frame, indices.length, `SAM, box from ${lastBoxSource || "drag"}`);
-        } else if (import.meta.env.DEV) {
-          console.debug("rsrsplat: mask matched too few splats, keeping the rectangle");
-        }
-      } else if (import.meta.env.DEV) {
-        console.debug("rsrsplat: no mask (sidecar down or empty), keeping the rectangle");
-      }
-    }
+    await this.refineWithModel(prompt);
     this.pending = null;
 
     // Close the hole this is about to open. Computed here rather than after the object
@@ -677,6 +647,90 @@ export class SceneController {
   /** Drive a joint. Wire units: degrees for a hinge, metres for a slide. */
   setJoint(bodyName: string, value: number): void {
     this.emit({ type: "joint.set", bodyName, value });
+  }
+
+  /**
+   * Replace the rectangle's guess with what several viewpoints agree the object is.
+   *
+   * One silhouette cannot reject the carpet directly under a vest: from any camera looking
+   * down at it, that carpet is inside the vest's outline, and only the depth band stands
+   * between them. From a low angle to one side it is plainly outside. So the object is what
+   * the viewpoints AGREE on -- which turns a heuristic into a geometric test, and recovers
+   * the object's far side at the same time, since a mask does not know about occlusion.
+   */
+  private async refineWithModel(prompt: string): Promise<void> {
+    const pending = this.pending;
+    if (!this.cloud || !this.selectedIndices || !this.selectedFrame || !pending) return;
+    if (!(await samAvailable())) {
+      if (import.meta.env.DEV) console.debug("rsrsplat: sidecar down, keeping the rectangle");
+      return;
+    }
+
+    // Photograph the room, not the selection. The highlight tints the object with the accent
+    // colour, and asking a model trained on photographs to find "a vest" inside a lime-green
+    // shape invites a different answer than the one we want.
+    this.clearHighlight();
+    const viewpoints = captureOrbit(
+      this.renderer,
+      this.scene,
+      this.camera,
+      this.selectedFrame.centroid,
+      this.cloud.centers,
+      this.selectedIndices,
+    );
+    this.showSelection(this.selectedFrame);
+    if (viewpoints.length === 0) return;
+
+    const masks = await Promise.all(viewpoints.map((v) => segmentView(v.view, v.rect, prompt)));
+
+    // The mask replaces the rectangle entirely, so each view is picked against the whole
+    // screen and the silhouette does all the work.
+    const full = { x0: -1, y0: -1, x1: 1, y1: 1 };
+    const perView: Uint32Array[] = [];
+    for (let i = 0; i < viewpoints.length; i++) {
+      const mask = masks[i];
+      if (!mask) continue;
+      const { indices } = pick(
+        this.cloud.centers,
+        this.cloud.opacities,
+        this.cloud.count,
+        viewpoints[i].camera,
+        full,
+        { mask },
+      );
+      if (indices.length >= 32) perView.push(indices);
+    }
+
+    if (perView.length === 0) {
+      if (import.meta.env.DEV) console.debug("rsrsplat: no usable masks, keeping the rectangle");
+      return;
+    }
+
+    const owned = vote(perView, this.cloud.count);
+    if (owned.length < 32) {
+      if (import.meta.env.DEV) {
+        console.debug(
+          `rsrsplat: ${perView.length} views agreed on only ${owned.length} splats, ` +
+            `keeping the rectangle`,
+        );
+      }
+      return;
+    }
+
+    // No grow. The views have already said what the object is; dilating their answer only
+    // walks back out into whatever the object is resting on.
+    const frame = measureFrame(
+      this.cloud.centers,
+      owned,
+      new THREE.Vector3(0, 0, 1),
+      pending.camera.position,
+    );
+    this.applySelection(
+      owned,
+      frame,
+      this.selectedIndices.length,
+      `${perView.length}/${viewpoints.length} views, box from ${lastBoxSource || "drag"}`,
+    );
   }
 
   control(action: "play" | "pause" | "reset"): void {
