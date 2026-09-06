@@ -27,6 +27,7 @@ import time
 import uuid
 from typing import Any
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -59,6 +60,14 @@ log = logging.getLogger("rsrsplat")
 BROADCAST_HZ = 30.0
 
 CLIENT = TypeAdapter(ClientMessage)
+
+# Load the repo's .env before anything reads an API key from the environment.
+#
+# The service is started from service/ while .env sits at the repo root, so the default
+# search does not find it. Without this every key is simply absent, and the failure surfaces
+# a long way from the cause: "TRIPO_API_KEY is not set" after the user has waited through a
+# selection, a segmentation and a physicalise.
+load_dotenv(pathlib.Path(__file__).resolve().parents[2] / ".env")
 
 app = FastAPI(title="rsrsplat", version="0.1.0")
 
