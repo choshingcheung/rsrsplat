@@ -190,15 +190,27 @@ export function grow(
   for (let i = 0; i < grid.counts.length; i++) {
     solid[i] = grid.counts[i] >= minSplats ? 1 : 0;
   }
-  cutSurfaces(grid, frame, options.surfaces ?? [], solid);
 
-  // Seed from the cells the rectangle hit, so growth starts where the user pointed.
+  // Seed from the cells the rectangle hit, BEFORE the surface cut, because the cut would
+  // otherwise delete the object.
+  //
+  // A vest lying on a carpet occupies the four centimetres directly above the floor, and the
+  // cut blanks everything within four and a half of a detected surface. Cutting first
+  // therefore erased the whole vest, left no seed to grow from, and fell back to the raw
+  // rectangle -- which is the "it did not remove the object" that started all of this. The
+  // cut cannot tell a thing lying on a floor from the floor, and for anything flat -- a
+  // vest, a book, a phone, a folded towel -- that is every splat it has.
   const seedCells = new Set<number>();
   const scratch = new THREE.Vector3();
   for (let k = 0; k < seeds.length; k++) {
     const at = cellOf(grid, centers, frame, seeds[k], scratch);
     if (at >= 0 && solid[at]) seedCells.add(at);
   }
+
+  // Now cut, sparing what the user pointed at. Those cells are object by assertion; the
+  // surface everywhere ELSE is what has to stay cut, because that is the bridge the flood
+  // would otherwise cross to reach the rest of the room.
+  cutSurfaces(grid, frame, options.surfaces ?? [], solid, seedCells);
 
   // Breadth-first, so a cell's first visit is by its SHORTEST path from the selection --
   // which is what makes "how far did this travel" meaningful. A depth-first stack would
@@ -276,6 +288,7 @@ function cutSurfaces(
   frame: MeasuredFrame,
   surfaces: number[],
   solid: Uint8Array,
+  protect: ReadonlySet<number>,
 ): void {
   if (!surfaces.length) return;
   const [nx, ny, nz] = grid.dims;
@@ -285,7 +298,7 @@ function cutSurfaces(
     for (let y = 0; y < ny; y++) {
       for (let x = 0; x < nx; x++) {
         const at = index(grid, x, y, z);
-        if (!solid[at]) continue;
+        if (!solid[at] || protect.has(at)) continue;
         // Cell centre back into world coordinates, to compare against a world height.
         const local = new THREE.Vector3(
           grid.origin.x + (x + 0.5) * grid.cell,

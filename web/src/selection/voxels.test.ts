@@ -155,6 +155,50 @@ describe("growing the object out of a partial selection", () => {
     expect(grown.indices.length).toBeLessThan(objectCount * 3);
   });
 
+  it("segments a FLAT object lying on the floor, which the surface cut used to erase", () => {
+    // A vest on a carpet: the demo case, and the one the cut was silently destroying. It is
+    // 4 cm thick and lies directly on the floor, so every cell it occupies is inside the
+    // 4.5 cm the cut blanks. Cutting before seeding erased the whole object, left nothing to
+    // grow from, and fell back to the raw rectangle.
+    const points: number[] = [];
+    fill(points, [0, 0, 0.02], [0.5, 0.35, 0.04], 0.008); // the vest
+    const objectCount = points.length / 3;
+    fill(points, [0, 0, -0.01], [4, 4, 0.02], 0.02); // the carpet it lies on
+
+    const { centers, count } = cloud(points);
+    const frame = frameAt([0, 0, 0.02], [0.25, 0.18, 0.02]);
+    // A rectangle over most of it, clipping one end.
+    const seeds = inside(centers, count, [-0.25, -0.18, 0.005], [0.12, 0.18, 0.06]);
+    expect(seeds.length).toBeGreaterThan(0);
+
+    const grown = grow(voxelise(centers, count, frame), centers, seeds, frame, {
+      surfaces: [0],
+    });
+
+    expect(grown.escaped).toBe(false);
+    // It found the object, not nothing and not the whole carpet.
+    expect(grown.indices.length).toBeGreaterThan(seeds.length);
+    expect(grown.indices.length).toBeLessThan(objectCount * 2.5);
+  });
+
+  it("still will not cross the floor away from the selection", () => {
+    // Sparing the selection from the cut must not spare the floor generally, or the flood
+    // walks out of the object along the carpet and takes the room.
+    const points: number[] = [];
+    fill(points, [0, 0, 0.02], [0.3, 0.3, 0.04], 0.008);
+    const objectCount = points.length / 3;
+    fill(points, [0, 0, -0.01], [6, 6, 0.02], 0.02);
+
+    const { centers, count } = cloud(points);
+    const frame = frameAt([0, 0, 0.02], [0.15, 0.15, 0.02]);
+    const seeds = inside(centers, count, [-0.15, -0.15, 0.005], [0.15, 0.15, 0.06]);
+
+    const grown = grow(voxelise(centers, count, frame), centers, seeds, frame, {
+      surfaces: [0],
+    });
+    expect(grown.indices.length).toBeLessThan(objectCount * 2.5);
+  });
+
   it("does not escape through the floor", () => {
     // Without the surface cut the flood leaves through the floor and returns with the room.
     const points: number[] = [];
