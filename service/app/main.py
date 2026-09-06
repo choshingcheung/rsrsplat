@@ -25,9 +25,12 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import TypeAdapter, ValidationError
 
+from .mesh import tripo as mesh
 from .mjcf.build import SchemaError
 from .mjcf.scene import SceneError
 from .protocol import (
@@ -56,6 +59,54 @@ BROADCAST_HZ = 30.0
 CLIENT = TypeAdapter(ClientMessage)
 
 app = FastAPI(title="rsrsplat", version="0.1.0")
+
+# The browser is served by vite on another port, so every request from it is cross-origin.
+# Local tool, local service: the permissive policy is the honest one rather than a pretence
+# of a boundary that does not exist.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["X-Mesh-Cached"],
+)
+
+mesh.MESH_DIR.mkdir(parents=True, exist_ok=True)
+# Generated meshes are served straight off disk. They are large binaries and deliberately
+# outside the repo; see assets/ in .gitignore.
+app.mount("/meshes", StaticFiles(directory=str(mesh.MESH_DIR)), name="meshes")
+
+
+@app.post("/mesh")
+async def make_mesh(request: Request) -> dict:
+    """A PNG of one object, in; a generated GLB, out.
+
+    The image is the whole prompt, so it is also the cache key -- the same selection
+    photographed the same way returns the same mesh with no network call. That is what makes
+    this demoable: generation takes the better part of a minute and costs credits, neither of
+    which is acceptable in front of an audience.
+
+    Run in a worker thread. Polling an external job from inside the event loop would stall
+    the pose stream for a minute, which looks exactly like the simulation having crashed.
+    """
+    image = await request.body()
+    if len(image) < 128:
+        raise HTTPException(status_code=400, detail="empty or truncated image")
+
+    hit = mesh.cached(image)
+    if hit is not None:
+        return {"url": hit.url, "cached": True}
+
+    try:
+        made = await asyncio.to_thread(mesh.generate, image)
+    except mesh.TripoError as exc:
+        # 502 rather than 500: the failure is upstream, and the message is written to be
+        # shown to the user unchanged -- "not enough credit" is something only they can fix.
+        log.warning("mesh generation failed: %s", exc)
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+
+    log.info("generated mesh %s", made.path.name)
+    return {"url": made.url, "cached": False}
 
 
 @app.get("/health")

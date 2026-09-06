@@ -39,6 +39,7 @@ import type {
 import { bind, orientationOf, unbind, type BoundObject } from "./binding";
 import { alignScene, roomObstacles } from "./ground";
 import { healSurface, mergeInto, type Patch } from "./heal";
+import { captureObject, loadMesh, requestMesh } from "./mesh";
 import { sceneCollision } from "./solid";
 import { applyAlignment, readPly, type SplatCloud } from "./splats";
 
@@ -89,6 +90,12 @@ export class SceneController {
 
   private bound = new Map<string, BoundObject>();
   private meshFor = new Map<string, THREE.Object3D>();
+
+  /** Generated GLB holders, by body name, so removing an object also removes its mesh. */
+  private generated = new Map<string, THREE.Object3D>();
+
+  /** Measured half-extents per object, kept because the selection is cleared on create. */
+  private halfExtentsFor = new Map<string, THREE.Vector3>();
   /** Buffered poses, interpolated by elapsed time rather than smoothed toward. */
   private stream = new PoseStream();
 
@@ -799,6 +806,12 @@ export class SceneController {
   private onCreated(object: PhysicsObject): void {
     if (!this.cloud || !this.staticMesh || !this.selectedIndices || !this.selectedFrame) return;
 
+    // Kept before the selection is cleared below: a generated mesh arrives seconds later and
+    // has to be fitted to the size the object was actually measured at, which is also the
+    // size the physics body uses. Fitting it to the mesh's own arbitrary units instead puts
+    // a two-metre vest through the ceiling.
+    this.halfExtentsFor.set(object.id, this.selectedFrame.halfExtents.clone());
+
     const bound = bind(this.cloud, this.selectedIndices, this.selectedFrame, object);
     for (const part of bound.parts) {
       this.scene.add(part.mesh);
@@ -825,6 +838,59 @@ export class SceneController {
     this.selectionId = null;
 
     useScene.getState().addObject(object);
+
+    // The generated mesh, in the background. It arrives seconds later or not at all, and the
+    // object is fully usable either way -- this only changes what it looks like.
+    void this.dressWithMesh(bound);
+  }
+
+  /**
+   * Replace an object's splats with a generated mesh of it.
+   *
+   * The splats are right from where the scanner stood and wrong from anywhere else: the far
+   * side of the vest was never observed, so it tumbles and shows a hollow. A generated mesh
+   * is closed, and closed is the whole point once the thing is thrown.
+   *
+   * Only the first part, and only free bodies. An articulated object's panels are positioned
+   * by the schema and a single generated shell would have to be cut up to match, which is a
+   * different problem with a different answer.
+   */
+  private async dressWithMesh(bound: BoundObject): Promise<void> {
+    const part = bound.parts[0];
+    if (!part || bound.parts.length > 1 || !this.selectedFrameFor(bound)) return;
+
+    const image = await captureObject(this.renderer, this.scene, this.camera, [part.mesh]);
+    if (!image) return;
+
+    const result = await requestMesh(image);
+    if (!result) return;
+
+    const half = this.selectedFrameFor(bound)!;
+    const loaded = await loadMesh(result.url, half);
+    if (!loaded) return;
+
+    // Swap rather than overlay: the pose drives whatever is registered for this body, so the
+    // holder takes the splat mesh's place and its transform.
+    const holder = new THREE.Group();
+    holder.position.copy(part.mesh.position);
+    holder.quaternion.copy(part.mesh.quaternion);
+    holder.add(loaded);
+
+    this.scene.remove(part.mesh);
+    this.scene.add(holder);
+    this.meshFor.set(part.bodyName, holder);
+    this.generated.set(part.bodyName, holder);
+
+    if (import.meta.env.DEV) {
+      console.debug(
+        `rsrsplat: dressed ${part.bodyName} with a ${result.cached ? "cached" : "generated"} mesh`,
+      );
+    }
+  }
+
+  /** The half-extents an object was measured with, for fitting a generated mesh to it. */
+  private selectedFrameFor(bound: BoundObject): THREE.Vector3 | null {
+    return this.halfExtentsFor.get(bound.id) ?? null;
   }
 
   private unbindOne(objectId: string): void {
@@ -834,7 +900,13 @@ export class SceneController {
       this.meshFor.delete(part.bodyName);
       this.stream.forget(part.bodyName);
       this.draggable.delete(part.bodyName);
+      const holder = this.generated.get(part.bodyName);
+      if (holder) {
+        this.scene.remove(holder);
+        this.generated.delete(part.bodyName);
+      }
     }
+    this.halfExtentsFor.delete(objectId);
     unbind(bound, this.scene);
     this.bound.delete(objectId);
     // Removing an object puts its splats back, so the static cloud is rebuilt from the
