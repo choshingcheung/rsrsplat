@@ -103,12 +103,23 @@ export async function requestMesh(image: Blob, prompt = ""): Promise<MeshResult 
 }
 
 /**
- * Load a GLB and scale it to the space the object actually occupies.
+ * Load a GLB and put it exactly where the object was.
  *
- * Generated meshes arrive in their own arbitrary units and centred on their own origin, so
- * placing one unmodified puts a two-metre vest through the ceiling. It is fitted to the
- * measured half-extents instead — the same numbers the physics body uses, which is what keeps
- * what you see and what you collide with the same size.
+ * Three things have to be corrected, and each one alone is enough to make a correct mesh
+ * look like a broken one:
+ *
+ * 1. **glTF is Y-up.** This scene is Z-up, because that is what the splats were aligned to
+ *    at load. Dropped in unrotated, the vest lies on its side and reads as the physics
+ *    having thrown it.
+ * 2. **The mesh has its own origin**, which is wherever the generator put it and is not the
+ *    centre of anything. Uncentred, the object orbits a point somewhere outside itself.
+ * 3. **The mesh has its own units.** Generators normalise to roughly unit size, so a vest
+ *    arrives about a metre across. It is fitted to the half-extents the SELECTION measured
+ *    — the same numbers the physics body uses, which is what keeps what you see and what
+ *    you collide with the same size.
+ *
+ * The result is a group whose origin is the object's centre, upright, at the right scale,
+ * ready to be parented to the body and inherit its pose.
  */
 export async function loadMesh(
   url: string,
@@ -122,21 +133,33 @@ export async function loadMesh(
     return null;
   }
 
-  const object = gltf.scene;
-  const bounds = new THREE.Box3().setFromObject(object);
-  const size = bounds.getSize(new THREE.Vector3());
-  if (size.x < 1e-6 || size.y < 1e-6 || size.z < 1e-6) return null;
+  const inner = gltf.scene;
 
-  // Uniform, and by the tightest axis: a non-uniform fit would stretch the mesh to fill a
-  // measured box that is itself only an approximation of the object.
+  // Y-up to Z-up, before anything is measured: bounds taken first would describe the mesh
+  // in the wrong frame and the fit would be wrong on two axes.
+  inner.rotation.set(Math.PI / 2, 0, 0);
+  inner.updateMatrixWorld(true);
+
+  const bounds = new THREE.Box3().setFromObject(inner);
+  const size = bounds.getSize(new THREE.Vector3());
+  if (size.x < 1e-6 || size.y < 1e-6 || size.z < 1e-6) {
+    console.warn("rsrsplat: the generated mesh has no extent");
+    return null;
+  }
+
+  // Uniform, by the tightest axis. A non-uniform fit would stretch the mesh to fill a
+  // measured box that is itself only an approximation of the object, so a slightly loose
+  // selection would visibly distort it.
   const target = halfExtents.clone().multiplyScalar(2);
   const scale = Math.min(target.x / size.x, target.y / size.y, target.z / size.z);
 
   const centre = bounds.getCenter(new THREE.Vector3());
   const group = new THREE.Group();
-  object.position.copy(centre).multiplyScalar(-scale);
-  object.scale.setScalar(scale);
-  group.add(object);
+  // Scale acts about the group origin, so the centring offset is scaled too. Applying the
+  // raw centre here puts the mesh adrift by however much the scale differs from one.
+  inner.position.copy(centre).multiplyScalar(-scale);
+  inner.scale.setScalar(scale);
+  group.add(inner);
   return group;
 }
 

@@ -860,8 +860,20 @@ export class SceneController {
    * different problem with a different answer.
    */
   private async dressWithMesh(bound: BoundObject): Promise<void> {
+    // Every exit here says why. "The mesh did not appear" is otherwise a silence with four
+    // possible causes, and reading the source is a poor way to tell them apart.
+    const say = (why: string) => {
+      if (import.meta.env.DEV) console.debug(`rsrsplat: no mesh — ${why}`);
+    };
+
     const part = bound.parts[0];
-    if (!part || bound.parts.length > 1 || !this.selectedFrameFor(bound)) return;
+    if (!part) return say("the object has no parts");
+    if (bound.parts.length > 1) {
+      // A single generated shell would have to be cut up to match the schema's panels, which
+      // is a different problem with a different answer.
+      return say(`${bound.parts.length} parts; meshes are for single-part objects`);
+    }
+    if (!this.selectedFrameFor(bound)) return say("no measured half-extents for this object");
 
     // Hide the room and every other object, but NOT the Spark renderer, which is what draws
     // Gaussians at all. Everything else in shot ends up fused into the generated mesh.
@@ -876,14 +888,14 @@ export class SceneController {
       ...others,
       ...this.generated.values(),
     ]);
-    if (!image) return;
+    if (!image) return say("could not photograph the object");
 
     const result = await requestMesh(image, this.lastPrompt);
-    if (!result) return;
+    if (!result) return say("the service returned no mesh");
 
     const half = this.selectedFrameFor(bound)!;
     const loaded = await loadMesh(result.url, half);
-    if (!loaded) return;
+    if (!loaded) return say(`could not load ${result.url}`);
 
     // Swap rather than overlay: the pose drives whatever is registered for this body, so the
     // holder takes the splat mesh's place and its transform.
@@ -898,8 +910,10 @@ export class SceneController {
     this.generated.set(part.bodyName, holder);
 
     if (import.meta.env.DEV) {
+      const source = result.pinned ? "pinned" : result.cached ? "cached" : "generated";
       console.debug(
-        `rsrsplat: dressed ${part.bodyName} with a ${result.cached ? "cached" : "generated"} mesh`,
+        `rsrsplat: dressed ${part.bodyName} with a ${source} mesh at ` +
+          `${holder.position.toArray().map((v) => v.toFixed(2)).join(", ")}`,
       );
     }
   }
