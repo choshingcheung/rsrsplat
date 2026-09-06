@@ -14,7 +14,7 @@ import * as THREE from "three";
 import { describe, expect, it } from "vitest";
 
 import type { MeasuredFrame } from "./frame";
-import { grow, toBoxes, voxelise, type LocalBox } from "./voxels";
+import { cellsOf, grow, toBoxes, voxelise, type LocalBox } from "./voxels";
 
 /** An identity frame at the origin: front +x, left +y, up +z. */
 function frameAt(
@@ -255,6 +255,47 @@ describe("growing the object out of a partial selection", () => {
     });
     expect(grown.escaped).toBe(false);
     expect(grown.indices.length).toBeLessThan(objectCount * 1.2);
+  });
+});
+
+describe("cells of an exact splat set", () => {
+  it("takes only the cells those splats occupy, and does not dilate", () => {
+    // What a segmentation mask needs. `grow` would walk 18 cm outward from these and take
+    // the floor with it; a mask has nothing to recover, so the shape is exactly these cells.
+    const points: number[] = [];
+    fill(points, [0, 0, 0.2], [0.2, 0.2, 0.2]); // the object
+    const objectCount = points.length / 3;
+    fill(points, [0, 0, -0.02], [3, 3, 0.04], 0.02); // a floor it rests on
+
+    const { centers, count } = cloud(points);
+    const frame = frameAt([0, 0, 0.2], [0.1, 0.1, 0.1]);
+    const grid = voxelise(centers, count, frame);
+    const owned = Uint32Array.from({ length: objectCount }, (_, i) => i);
+
+    const cells = cellsOf(grid, centers, frame, owned);
+    const boxes = toBoxes(grid, cells);
+
+    expect(cells.size).toBeGreaterThan(0);
+    // Boxes are in the frame's OWN coordinates, so the object spans about -0.1 to +0.1 and
+    // the floor sits near -0.22. Nothing may reach down to it: that is what a dilation would
+    // have taken, and taking it is what made a segmented vest come back wearing carpet.
+    const bottom = Math.min(...boxes.map((b) => b.center[2] - b.halfExtents[2]));
+    expect(bottom).toBeGreaterThan(-0.16);
+    const top = Math.max(...boxes.map((b) => b.center[2] + b.halfExtents[2]));
+    expect(top).toBeGreaterThan(0.05);
+  });
+
+  it("ignores splats that fall outside the grid", () => {
+    const points: number[] = [];
+    fill(points, [0, 0, 0], [0.1, 0.1, 0.1]);
+    points.push(50, 50, 50); // a floater far outside
+    const { centers, count } = cloud(points);
+    const frame = frameAt([0, 0, 0], [0.05, 0.05, 0.05]);
+    const grid = voxelise(centers, count, frame);
+
+    const all = Uint32Array.from({ length: count }, (_, i) => i);
+    expect(cellsOf(grid, centers, frame, all).size).toBeGreaterThan(0);
+    expect(cellsOf(grid, centers, frame, [count - 1]).size).toBe(0);
   });
 });
 

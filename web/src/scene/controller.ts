@@ -27,7 +27,7 @@ import { PoseStream } from "../net/interpolate";
 import { measureFrame, toSelection, type MeasuredFrame } from "../selection/frame";
 import { pick, rectFromPointers, type ScreenRect } from "../selection/pick";
 import { segment } from "../selection/sam";
-import { grow, toBoxes, voxelise } from "../selection/voxels";
+import { cellsOf, grow, toBoxes, voxelise } from "../selection/voxels";
 import { useScene } from "../store/scene";
 import type {
   ClientMessage,
@@ -441,44 +441,58 @@ export class SceneController {
       return;
     }
 
-    // The rectangle is a HINT, not the answer. It caught part of the object, some floor
-    // under it and a slice of the wall behind — and it MISSED whatever fell outside the box:
-    // the clipped corner, the handle sticking out. Removing exactly that set is what read as
-    // "it didn't remove the object", because it didn't. So grow the object out of it.
-    const hint = measureFrame(
-      this.cloud.centers,
-      indices,
-      new THREE.Vector3(0, 0, 1),
-      this.camera.position,
-    );
+    // What happens next depends entirely on WHERE the selection came from, and conflating
+    // the two cases is what made SAM look broken while it was working perfectly.
+    //
+    // A RECTANGLE is a hint: it caught part of the object and missed the clipped corner, so
+    // the object has to be grown out of it. A MASK is an answer: the model has already said
+    // what the object is, and growing it only walks out of the object into whatever it is
+    // resting on. A vest touches the carpet along its whole underside, so an 18 cm dilation
+    // takes 18 cm of carpet in every direction -- destroying the silhouette immediately
+    // after paying for it.
+    let owned: Uint32Array;
+    let frame: MeasuredFrame;
+    let escaped = false;
 
-    const grown = grow(
-      voxelise(this.cloud.centers, this.cloud.count, hint),
-      this.cloud.centers,
-      indices,
-      hint,
-      { surfaces: this.surfaces },
-    );
-
-    // A flood that escaped is worse than no segmentation at all, so fall back to what the
-    // user actually drew rather than handing physics the whole room.
-    const escaped = grown.escaped || grown.indices.length < 32;
-    const owned = escaped ? Uint32Array.from(indices) : grown.indices;
-    const frame = escaped
-      ? hint
-      : measureFrame(this.cloud.centers, owned, new THREE.Vector3(0, 0, 1), this.camera.position);
-
-    // Measured again in the frame the object actually has. The first grid was built around
-    // the hint, and the grow moved the centroid, so reusing it would offset every box by
-    // however far the object turned out to extend beyond the rectangle.
-    let shape: ShapeBox[] = [];
-    if (!escaped) {
-      const grid = voxelise(this.cloud.centers, this.cloud.count, frame);
-      shape = toBoxes(
-        grid,
-        grow(grid, this.cloud.centers, owned, frame, { surfaces: this.surfaces }).cells,
+    if (mask) {
+      owned = Uint32Array.from(indices);
+      frame = measureFrame(
+        this.cloud.centers,
+        owned,
+        new THREE.Vector3(0, 0, 1),
+        this.camera.position,
       );
+    } else {
+      const hint = measureFrame(
+        this.cloud.centers,
+        indices,
+        new THREE.Vector3(0, 0, 1),
+        this.camera.position,
+      );
+      const grown = grow(
+        voxelise(this.cloud.centers, this.cloud.count, hint),
+        this.cloud.centers,
+        indices,
+        hint,
+        { surfaces: this.surfaces },
+      );
+      // A flood that escaped is worse than no segmentation at all, so fall back to what the
+      // user actually drew rather than handing physics the whole room.
+      escaped = grown.escaped || grown.indices.length < 32;
+      owned = escaped ? Uint32Array.from(indices) : grown.indices;
+      frame = escaped
+        ? hint
+        : measureFrame(this.cloud.centers, owned, new THREE.Vector3(0, 0, 1), this.camera.position);
     }
+
+    // The collision shape, from the cells the owned splats actually occupy. Measured in the
+    // frame the object ENDED UP with: a grid built around an earlier frame offsets every box
+    // by however far the centroid moved.
+    const grid = voxelise(this.cloud.centers, this.cloud.count, frame);
+    const shape: ShapeBox[] = toBoxes(
+      grid,
+      cellsOf(grid, this.cloud.centers, frame, owned),
+    );
 
     this.selectedIndices = owned;
     this.selectedFrame = frame;
@@ -487,9 +501,9 @@ export class SceneController {
 
     if (import.meta.env.DEV) {
       console.debug(
-        `rsrsplat: selection ${indices.length} -> ${owned.length} splats, ` +
-          `${shape.length} collision boxes` +
-          (escaped ? " (grow escaped; falling back to the rectangle)" : ""),
+        `rsrsplat: selection via ${mask ? "SAM mask" : "rectangle"} — ` +
+          `${indices.length} -> ${owned.length} splats, ${shape.length} collision boxes` +
+          (escaped ? " (grow escaped; fell back to the rectangle)" : ""),
       );
     }
 

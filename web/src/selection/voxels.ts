@@ -263,6 +263,29 @@ const NEIGHBOURS: [number, number, number][] = [
   [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
 ];
 
+/**
+ * The cells a given set of splats occupies. No flood, no growth: exactly these splats.
+ *
+ * This is what a segmentation model's answer needs. `grow` exists to recover the part of an
+ * object a RECTANGLE clipped, and dilates outward to do it; run on a mask it walks straight
+ * out of the object and into whatever the object is resting on. A mask has nothing to
+ * recover, so the collision shape is taken from the cells it already names.
+ */
+export function cellsOf(
+  grid: Grid,
+  centers: Float32Array,
+  frame: MeasuredFrame,
+  indices: ArrayLike<number>,
+): Set<number> {
+  const cells = new Set<number>();
+  const scratch = new THREE.Vector3();
+  for (let k = 0; k < indices.length; k++) {
+    const at = cellOf(grid, centers, frame, indices[k], scratch);
+    if (at >= 0) cells.add(at);
+  }
+  return cells;
+}
+
 /** Which cell a splat is in, or -1 if it is outside the grid. */
 function cellOf(
   grid: Grid,
