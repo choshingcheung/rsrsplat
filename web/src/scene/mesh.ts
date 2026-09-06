@@ -135,6 +135,35 @@ export async function loadMesh(
 
   const inner = gltf.scene;
 
+  // The scene has no lights, because Gaussian splats carry their own baked lighting and need
+  // none. A GLB arrives with PBR materials, and a MeshStandardMaterial lit by nothing renders
+  // BLACK -- a correct, fully textured mesh that looks like a silhouette. Its colour is
+  // already baked into the texture the generator produced, so the honest fix is to stop
+  // asking for lighting rather than to invent some: unlit materials match the splats around
+  // them, which are unlit too.
+  inner.traverse((node) => {
+    const asMesh = node as THREE.Mesh;
+    if (!asMesh.isMesh) return;
+    const materials = Array.isArray(asMesh.material) ? asMesh.material : [asMesh.material];
+    asMesh.material = materials.map((material) => {
+      const lit = material as THREE.MeshStandardMaterial;
+      const flat = new THREE.MeshBasicMaterial({
+        map: lit.map ?? null,
+        color: lit.map ? 0xffffff : (lit.color ?? new THREE.Color(0xcccccc)),
+        transparent: lit.transparent,
+        opacity: lit.opacity,
+        side: lit.side,
+      });
+      // A generated mesh is a closed shell; drawing its back faces over its front ones is
+      // what makes one look inside-out.
+      flat.side = THREE.FrontSide;
+      return flat;
+    }) as THREE.Material[] | THREE.Material;
+    if (Array.isArray(asMesh.material) && asMesh.material.length === 1) {
+      asMesh.material = asMesh.material[0];
+    }
+  });
+
   // Y-up to Z-up, before anything is measured: bounds taken first would describe the mesh
   // in the wrong frame and the fit would be wrong on two axes.
   inner.rotation.set(Math.PI / 2, 0, 0);
@@ -155,9 +184,23 @@ export async function loadMesh(
 
   const centre = bounds.getCenter(new THREE.Vector3());
   const group = new THREE.Group();
+
   // Scale acts about the group origin, so the centring offset is scaled too. Applying the
-  // raw centre here puts the mesh adrift by however much the scale differs from one.
+  // raw centre here leaves the mesh adrift by however much the scale differs from one.
   inner.position.copy(centre).multiplyScalar(-scale);
+
+  // Sit it on its BASE, not on its centre.
+  //
+  // The fit is by the tightest axis, so a mesh whose proportions differ from the measured
+  // box comes out smaller than the box. Centre-aligned, its base then floats above where the
+  // object's base actually was -- by half the difference, which for a pot measured generously
+  // is several centimetres of daylight underneath it. Objects rest on their bottoms, so the
+  // bottom is what gets aligned.
+  //
+  // Local +z is the object's own up: the holder carries the body's orientation, whose third
+  // column is the measured up axis.
+  inner.position.z += halfExtents.z - (size.z * scale) / 2;
+
   inner.scale.setScalar(scale);
   group.add(inner);
   return group;
