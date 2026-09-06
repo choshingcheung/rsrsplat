@@ -34,6 +34,9 @@ import numpy as np
 
 from .room import Room, Surface
 
+#: The offscreen framebuffer, in pixels. Compile-time, and the ceiling on any render size.
+OFFSCREEN = (1920, 1080)
+
 #: A 4 cm cube, matching akitech's `sceneref.BLOCK_SIZE`, in half-extents.
 BLOCK_HALF = (0.02, 0.02, 0.02)
 
@@ -124,6 +127,22 @@ def build(
     spec = mujoco.MjSpec.from_file(so_arm100_mj_description.MJCF_PATH)
     _drop_keyframes(spec)
 
+    # The offscreen framebuffer is fixed at compile time and defaults to 640x480, so a
+    # renderer asked for anything larger fails at construction rather than downscaling.
+    spec.visual.global_.offwidth = OFFSCREEN[0]
+    spec.visual.global_.offheight = OFFSCREEN[1]
+
+    # The description ships no light of its own, so a composed scene renders by headlight
+    # alone: flat, and with nothing to read the shape of the arm against.
+    spec.worldbody.add_light(
+        name="key",
+        type=mujoco.mjtLightType.mjLIGHT_DIRECTIONAL,
+        pos=[0.0, 0.0, 3.0],
+        dir=[0.0, 0.2, -1.0],
+        diffuse=[0.7, 0.7, 0.7],
+        specular=[0.2, 0.2, 0.2],
+    )
+
     base = _find_body(spec.worldbody, "Base")
     if base is None:
         raise RuntimeError("the SO-101 description has no body named 'Base'")
@@ -197,6 +216,7 @@ def settle(model: mujoco.MjModel, data: mujoco.MjData, seconds: float = 0.5) -> 
 
 __all__ = [
     "BLOCK_HALF",
+    "OFFSCREEN",
     "BLOCK_REACH_M",
     "BLOCK_RGBA",
     "Placement",

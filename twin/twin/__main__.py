@@ -3,6 +3,7 @@
     twin inspect <capture.ply>     what the scan says: up, scale, floor, surfaces
     twin run     <capture.ply>     build it and pick the block up, headless
     twin view    <capture.ply>     the same, in the MuJoCo viewer
+    twin film    <capture.ply>     record it to out/pick.mp4, and an orbit to check up
 
     --flip            invert up, when the floor came out overhead
     --surface N       stand on surface N from `inspect` rather than the best one
@@ -21,7 +22,7 @@ import sys
 
 import mujoco
 
-from . import pick, room, scene
+from . import film, pick, room, scene
 from .deps import MissingRepo
 
 
@@ -105,6 +106,26 @@ def cmd_view(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_film(args: argparse.Namespace) -> int:
+    """Record rather than watch: a file survives a venue with no working GPU."""
+    from pathlib import Path
+
+    _, placement, model, data = compose(args)
+    out = Path(args.out)
+
+    say("")
+    destination, result = film.record(model, data, placement, out / "pick.mp4", run=pick.run)
+    say(result.describe())
+    say(f"  {destination}  ({destination.stat().st_size / 1e6:.1f} MB)")
+
+    if not args.no_orbit:
+        # A still cannot show whether the room came out upside down. A turn can.
+        turn = film.orbit(model, data, placement, out / "orbit.mp4")
+        say(f"  {turn}  ({turn.stat().st_size / 1e6:.1f} MB)  -- checks which way is up")
+
+    return 0 if result.ok else 1
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="twin", description=__doc__.split("\n")[0])
     sub = root.add_subparsers(dest="command", required=True)
@@ -113,6 +134,7 @@ def parser() -> argparse.ArgumentParser:
         ("inspect", cmd_inspect, "report up, scale, floor and surfaces"),
         ("run", cmd_run, "build the scene and pick the block up, headless"),
         ("view", cmd_view, "the same, in the MuJoCo viewer"),
+        ("film", cmd_film, "record it to an mp4"),
     ):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("capture", help="a 3DGS .ply")
@@ -120,6 +142,9 @@ def parser() -> argparse.ArgumentParser:
         p.add_argument("--surface", type=int, help="stand on this surface, from inspect")
         p.add_argument("--room-height", type=float, default=room.ROOM_HEIGHT_M)
         p.add_argument("--no-walls", action="store_true")
+        if name == "film":
+            p.add_argument("--out", default="out", help="where the mp4s go (default out/)")
+            p.add_argument("--no-orbit", action="store_true")
         p.set_defaults(handler=handler)
 
     return root

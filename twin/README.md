@@ -5,8 +5,13 @@ A robot arm standing inside a Gaussian splat capture, picking up a red block.
 ```bash
 cd twin
 .venv/Scripts/python -m twin inspect ../capture/out/<capture>.ply
-.venv/Scripts/python -m twin view    ../capture/out/<capture>.ply
+.venv/Scripts/python -m twin view    ../capture/out/<capture>.ply   # interactive
+.venv/Scripts/python -m twin film    ../capture/out/<capture>.ply   # out/pick.mp4
 ```
+
+`view` opens the MuJoCo viewer and runs the pick in it; drag to orbit. `film` writes the
+same run to `out/pick.mp4`, plus `out/orbit.mp4` -- a slow turn with nothing moving, which
+is the quickest way to see whether the room came out the right way up.
 
 **Read this if you are working in the other half of this repo.** Like `capture/`, this track
 is developed in the same working tree by a second session, and the contract below is what
@@ -97,5 +102,7 @@ Working end to end. 14 tests, ruff clean. The tests build a synthetic room — a
 worktop — so they run in two seconds and need no capture on disk; the one test that reads a
 real `.ply` skips when there is not one.
 
-Not done: an offscreen render to MP4 for demo insurance, and `support_patch` to guarantee the
-arm is not standing inside furniture rather than on clear floor.
+**Not done, and visible in the film:** the worktop is drawn as the full extent of the band
+`ground.py` found -- roughly 9 x 14 m -- so the arm reads as standing on a plain rather than
+on a desk. `support_patch` would cut it down to the patch actually around the arm. Cosmetic,
+but it is the first thing anyone will ask about.

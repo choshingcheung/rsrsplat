@@ -3,7 +3,15 @@ name = "rsrsplat-twin"
 version = "0.1.0"
 description = "The scanned room as physics: a robot arm standing in a splat capture."
 requires-python = ">=3.12"
-dependencies = ["mujoco>=3.3", "numpy>=1.26", "plyfile>=1.0", "robot_descriptions>=1.12"]
+dependencies = [
+    "mujoco>=3.3",
+    "numpy>=1.26",
+    "plyfile>=1.0",
+    "robot_descriptions>=1.12",
+    # Recording the pick: a file survives a venue with no working GPU.
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.5",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
