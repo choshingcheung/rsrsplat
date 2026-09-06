@@ -22,6 +22,8 @@
 
 import * as THREE from "three";
 
+import { masked, type Mask } from "./sam";
+
 export interface ScreenRect {
   /** Normalised device coordinates, -1..1, y up. */
   x0: number;
@@ -43,6 +45,14 @@ export interface PickOptions {
    * on a 1.5M-splat scene; the commit always runs at stride 1.
    */
   stride?: number;
+  /**
+   * An object silhouette from SAM, in device pixels.
+   *
+   * When present it REPLACES the rectangle: the rectangle was only ever a prompt, and the
+   * mask is the answer. Depth filtering still applies, because the wall behind the vest is
+   * inside the vest's silhouette too.
+   */
+  mask?: Mask | null;
 }
 
 const DEFAULTS = { minOpacity: 0.1, depthBand: 0.9, stride: 1 };
@@ -85,6 +95,7 @@ export function pick(
   options: PickOptions = {},
 ): PickResult {
   const { minOpacity, depthBand, stride } = { ...DEFAULTS, ...options };
+  const mask = options.mask ?? null;
 
   camera.updateMatrixWorld();
   const viewProjection = new THREE.Matrix4().multiplyMatrices(
@@ -112,9 +123,18 @@ export function pick(
     if (w <= 0) continue; // behind the camera
 
     const ndcX = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w;
-    if (ndcX < rect.x0 || ndcX > rect.x1) continue;
     const ndcY = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w;
-    if (ndcY < rect.y0 || ndcY > rect.y1) continue;
+
+    if (mask) {
+      // The mask REPLACES the rectangle rather than narrowing it. SAM's answer routinely
+      // reaches outside the box it was prompted with, and that overspill is the part the
+      // user's drag clipped -- the sleeve hanging out of the rectangle. Intersecting the
+      // two would throw away the one thing a model can give us that a rectangle cannot.
+      if (!masked(mask, ndcX, ndcY)) continue;
+    } else {
+      if (ndcX < rect.x0 || ndcX > rect.x1) continue;
+      if (ndcY < rect.y0 || ndcY > rect.y1) continue;
+    }
 
     const dx = x - eye.x;
     const dy = y - eye.y;

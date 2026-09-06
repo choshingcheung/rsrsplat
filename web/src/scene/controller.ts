@@ -26,6 +26,7 @@ import { connect, type Service } from "../net/client";
 import { PoseStream } from "../net/interpolate";
 import { measureFrame, toSelection, type MeasuredFrame } from "../selection/frame";
 import { pick, rectFromPointers, type ScreenRect } from "../selection/pick";
+import { segment } from "../selection/sam";
 import { grow, toBoxes, voxelise } from "../selection/voxels";
 import { useScene } from "../store/scene";
 import type {
@@ -110,6 +111,10 @@ export class SceneController {
       // costs a great deal of performance.
       antialias: false,
       powerPreference: "high-performance",
+      // Needed to read the canvas back for SAM. A WebGL drawing buffer is not readable once
+      // the frame has been composited, so without this the capture is a blank image and the
+      // mask comes back empty -- which looks exactly like a segmentation failure.
+      preserveDrawingBuffer: true,
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
@@ -401,12 +406,35 @@ export class SceneController {
       return;
     }
 
+    void this.commitSelection(rect);
+  }
+
+  /**
+   * Turn a finished drag into a selection.
+   *
+   * Asynchronous because the rectangle is only a prompt: SAM turns it into an object
+   * silhouette, which takes about 150 ms round trip. Every failure path falls back to the
+   * rectangle, so the tool still works with the sidecar stopped.
+   */
+  private async commitSelection(rect: ScreenRect): Promise<void> {
+    if (!this.cloud) return;
+
+    const mask = await segment(this.renderer.domElement, rect);
+    if (import.meta.env.DEV) {
+      console.debug(
+        mask
+          ? `rsrsplat: SAM returned a mask`
+          : `rsrsplat: no mask (sidecar down or empty result), using the rectangle`,
+      );
+    }
+
     const { indices } = pick(
       this.cloud.centers,
       this.cloud.opacities,
       this.cloud.count,
       this.camera,
       rect,
+      { mask },
     );
     if (indices.length < 32) {
       this.clearSelection();
@@ -469,10 +497,10 @@ export class SceneController {
       type: "selection.commit",
       selection: toSelection(this.selectionId, frame, owned.length, shape),
     });
-    store.setPrompt({
+    useScene.getState().setPrompt({
       kind: "asking",
       selectionId: this.selectionId,
-      splatCount: indices.length,
+      splatCount: owned.length,
     });
   }
 
