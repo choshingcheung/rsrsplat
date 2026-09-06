@@ -1,0 +1,10 @@
+# This track's own ignore rules; the repo-root .gitignore never has to learn about them.
+.venv/
+out/
+*.mp4
+*.png
+*.xml
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
